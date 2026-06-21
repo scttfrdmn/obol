@@ -1,0 +1,13 @@
+/bin/
+/dist/
+*.out
+*.test
+coverage.*
+/obold
+# local daemon state (never commit)
+*.wal
+*.log
+/var/
+.DS_Store
+# scaffold delivery artifact (not source)
+/obol-scaffold.tar.gz

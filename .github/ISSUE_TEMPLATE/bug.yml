@@ -1,0 +1,19 @@
+name: Bug
+description: Something behaves incorrectly.
+labels: ["type:fix"]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+    validations: { required: true }
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected
+    validations: { required: true }
+  - type: input
+    id: invariant
+    attributes:
+      label: Invariant affected (if any)
+      description: e.g. conservation, gate atomicity, WAL determinism

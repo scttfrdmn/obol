@@ -1,0 +1,48 @@
+# golangci-lint v2 configuration. https://golangci-lint.run
+version: "2"
+
+run:
+  timeout: 5m
+
+linters:
+  default: standard
+  enable:
+    - errcheck
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+    - bodyclose
+    - errorlint
+    - gosec
+    - misspell
+    - revive
+    - unconvert
+    - unparam
+    - prealloc
+    - nilerr
+    - gocritic
+  settings:
+    revive:
+      rules:
+        - name: exported
+          disabled: false
+    gosec:
+      excludes:
+        - G404 # math/rand is fine for the coin-flip tie-break (documented, non-crypto)
+  exclusions:
+    rules:
+      # Tests may use unchecked errors and the panic tripwire pattern.
+      - path: _test\.go
+        linters:
+          - errcheck
+          - gosec
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/scttfrdmn/obol

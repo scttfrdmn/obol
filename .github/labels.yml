@@ -1,0 +1,32 @@
+# Declarative label set, applied by scripts/bootstrap-github.sh.
+# type:
+- { name: "type:feat",     color: "1d76db", description: "New capability" }
+- { name: "type:fix",      color: "d73a4a", description: "Bug fix" }
+- { name: "type:docs",     color: "0075ca", description: "Documentation" }
+- { name: "type:test",     color: "bfd4f2", description: "Tests only" }
+- { name: "type:refactor", color: "fbca04", description: "No behavior change" }
+- { name: "type:perf",     color: "a2eeef", description: "Performance" }
+- { name: "type:chore",    color: "ededed", description: "Maintenance" }
+# area:
+- { name: "area:kernel",       color: "5319e7", description: "internal/budget money/burst core" }
+- { name: "area:daemon",       color: "5319e7", description: "cmd/obold" }
+- { name: "area:wal",          color: "5319e7", description: "Durability: WAL/snapshot/recovery" }
+- { name: "area:protocol",     color: "5319e7", description: "Shim<->daemon wire protocol" }
+- { name: "area:lua-shim",     color: "5319e7", description: "job_submit.lua" }
+- { name: "area:site-factor",  color: "5319e7", description: "Priority/burst dispatch plugin" }
+- { name: "area:cli",          color: "5319e7", description: "Budget management CLI" }
+- { name: "area:ci",           color: "5319e7", description: "CI/CD" }
+- { name: "area:deps",         color: "5319e7", description: "Dependencies" }
+- { name: "area:governance",   color: "5319e7", description: "Process/docs/scaffold" }
+# priority:
+- { name: "priority:p0", color: "b60205", description: "Blocker" }
+- { name: "priority:p1", color: "d93f0b", description: "Important" }
+- { name: "priority:p2", color: "fef2c0", description: "Nice to have" }
+# status:
+- { name: "status:blocked",      color: "000000", description: "Waiting on something" }
+- { name: "status:needs-design", color: "c5def5", description: "Design question open" }
+- { name: "good first issue",    color: "7057ff", description: "Good entry point" }
+# slurm generation:
+- { name: "slurm:gen1-2205", color: "006b75", description: "Slurm 22.05 (Rocky 8)" }
+- { name: "slurm:gen2-2311", color: "006b75", description: "Slurm 23.11" }
+- { name: "slurm:gen3-2405", color: "006b75", description: "Slurm 24.05" }
