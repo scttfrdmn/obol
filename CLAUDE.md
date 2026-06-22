@@ -82,11 +82,10 @@ The changelog's `Unreleased` section becomes the release notes.
 
 ## Go practices (2026)
 
-- **Go 1.25 floor** (`go` directive `1.25`); developed on 1.26, and CI runs both 1.26 and the
-  1.25 floor. The directive is a *minimum*, so a `go 1.26` directive would make the 1.25 job
-  unbuildable — the floor is what keeps "don't use features newer than the floor" testable. Do
-  not use language features newer than the floor without bumping the directive deliberately (and
-  the CI matrix with it).
+- **Go 1.26**, single toolchain (`go` directive `1.26`); CI runs only 1.26. obol ships a
+  self-deployed daemon + CLI, not a library (`internal/budget` is not externally importable), so
+  there is no third-party consumer needing an older toolchain — no "previous major" matrix entry.
+  Bump the directive and the CI `go` version together when moving to a newer Go.
 - **Layout:** `cmd/<binary>` for mains, `internal/` for everything not meant for external
   import. The kernel stays in `internal/budget`. No premature `pkg/`.
 - **Errors:** wrap with `%w`, sentinel errors as package vars, no `panic` in library code except

@@ -20,7 +20,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        go: ["1.26", "1.25"] # latest + previous supported major
+        go: ["1.26"] # single supported toolchain (self-deployed daemon + CLI, not a library)
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-go@v6
