@@ -23,8 +23,8 @@ at `internal/budget`.
   crash-safe durability (command-logged WAL + snapshot recovery + orphan janitor). It passes
   under `-race`. **Do not rewrite it; build on it.**
 - **Ahead of you:** the daemon (`cmd/obold`, currently a stub), the budget-management CLI
-  (`obol`), and the Slurm seam (Lua `job_submit` shim + `site_factor` plugin), validated against
-  burstlab clusters.
+  (`obol`), and the Slurm seam (Lua `job_submit` shim + `site_factor` plugin), designed in
+  `docs/SEAM_DESIGN.md` with validation on burstlab clusters still pending.
 - **The invariants that must never regress** (full statements in `CLAUDE.md`): exact integer
   conservation; atomic gate; transitions as pure functions of `(state, command, now)`; WAL holds
   only committed transitions; burst is permission, not money.
