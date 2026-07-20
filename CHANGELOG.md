@@ -17,6 +17,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   convention for CI-on-change and a reviewable diff rather than an enforced gate.
 
 ### Added
+- Shim fail-mode model (`internal/shim`): the local open/closed gate decision the job_submit
+  hook makes when obold is slow or down (`docs/SEAM_DESIGN.md` §6/§7). Hard timeout treats a
+  slow daemon as down; a static per-partition class table decides fail-closed (cloud) vs
+  fail-open (on-prem) with no round-trip. Tests cover both classes, the timeout boundary from
+  both sides, and the unknown-partition default.
 - `obold` daemon (`internal/daemon`, `cmd/obold`): a Unix-socket server wrapping the budget
   kernel. Routes `GATE`/`BIND`/`SETTLE` onto the proven kernel transitions (per
   `docs/SEAM_DESIGN.md` §12), mints unforgeable correlation tokens, holds the token↔jobid
