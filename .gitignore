@@ -11,3 +11,4 @@ coverage.*
 .DS_Store
 # scaffold delivery artifact (not source)
 /obol-scaffold.tar.gz
+test/docker/bin/

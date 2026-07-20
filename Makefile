@@ -8,7 +8,7 @@ LDFLAGS     := -X main.version=$(VERSION)
 # version pin is required for `go run` to resolve it.
 GOLANGCI    := $(shell command -v golangci-lint 2>/dev/null || echo "go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2")
 
-.PHONY: build test race lint cover fmt fmt-check vet tidy check clean
+.PHONY: build test race lint cover fmt fmt-check vet tidy check clean integ-docker
 
 build: ## build obold + obol into ./bin
 	@mkdir -p bin
@@ -17,6 +17,13 @@ build: ## build obold + obol into ./bin
 
 test: ## run all tests
 	go test $(PKG)
+
+integ-docker: ## build the single-node Slurm image and run the containerized seam tests
+	@command -v docker >/dev/null 2>&1 || { echo "integ-docker: docker not found; skipping"; exit 0; }
+	@mkdir -p test/docker/bin
+	GOOS=linux GOARCH=$(shell go env GOARCH) go build -o test/docker/bin/obold ./cmd/obold
+	GOOS=linux GOARCH=$(shell go env GOARCH) go build -o test/docker/bin/obol  ./cmd/obol
+	go test -tags=docker_integration -count=1 -v -timeout 15m ./test/docker/
 
 race: ## run all tests under the race detector (REQUIRED for concurrency changes)
 	go test -race -count=1 $(PKG)

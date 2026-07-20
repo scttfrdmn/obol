@@ -22,6 +22,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   rejected as lapsed against the daemon's epoch clock. Regression test added.
 
 ### Added
+- Docker single-node Slurm integration tier (`test/docker/`, `make integ-docker`): builds a
+  Rocky 9 image running munge + slurmctld + slurmd + slurmdbd + mariadb with the obol GATE seam
+  installed, and a build-tagged Go harness (`//go:build docker_integration`) that drives real
+  `sbatch` submissions. Proves the full gate → escrow → run → epilog-SETTLE → refund path against
+  an actual `slurmctld` (Slurm 22.05, confirming `admin_comment` writability — SEAM_DESIGN §13
+  gap #1), including a multi-user/multi-account multi-tenant test. Skips cleanly without Docker.
+  See `docs/INTEGRATION.md`.
 - GATE Slurm seam (`seam/`): a `JobSubmitPlugins=lua` shim (`job_submit.lua`) that gates every
   submission through obold and stamps the correlation token into `admin_comment`; a pure-Lua
   wire module (`obol_wire.lua`) mirroring `internal/wire` (IEEE crc32 verified equal to Go's,
