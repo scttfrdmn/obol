@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `obold` daemon (`internal/daemon`, `cmd/obold`): a Unix-socket server wrapping the budget
+  kernel. Routes `GATE`/`BIND`/`SETTLE` onto the proven kernel transitions (per
+  `docs/SEAM_DESIGN.md` §12), mints unforgeable correlation tokens, holds the token↔jobid
+  binding, and supplies `now` from its own clock so the kernel stays clock-free. Durable
+  open/create, graceful signal shutdown. End-to-end socket tests including a concurrent gate
+  storm under `-race` and a conservation-across-session assertion.
 - Wire protocol (`internal/wire`): length-prefixed, crc-checked, versioned local-socket
   frames for `GATE` / `BIND` / `SETTLE` (plus `PING`), per `docs/SEAM_DESIGN.md` §8. Framing
   mirrors the kernel WAL; round-trip, multi-frame, version-mismatch, and corruption/truncation
