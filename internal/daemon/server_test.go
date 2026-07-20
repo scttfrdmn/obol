@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/scttfrdmn/obol/internal/budget"
 	"github.com/scttfrdmn/obol/internal/wire"
@@ -52,12 +53,20 @@ func newTestServer(t *testing.T) (func() net.Conn, *testClock, *budget.Budget) {
 		_ = bd.Close()
 	})
 
+	// dial retries a transient ECONNREFUSED: under a thundering herd of
+	// concurrent dials the listen backlog can briefly fill, which a real client
+	// handles by retrying. This is a test-harness concern, not server behavior.
 	dial := func() net.Conn {
-		conn, derr := net.Dial("unix", ln.Addr().String())
-		if derr != nil {
-			t.Fatalf("dial: %v", derr)
+		for attempt := 0; ; attempt++ {
+			conn, derr := net.Dial("unix", ln.Addr().String())
+			if derr == nil {
+				return conn
+			}
+			if attempt >= 100 {
+				t.Fatalf("dial: %v", derr)
+			}
+			time.Sleep(time.Millisecond)
 		}
-		return conn
 	}
 	return dial, clk, bd
 }
