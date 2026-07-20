@@ -22,6 +22,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   rejected as lapsed against the daemon's epoch clock. Regression test added.
 
 ### Added
+- GATE Slurm seam (`seam/`): a `JobSubmitPlugins=lua` shim (`job_submit.lua`) that gates every
+  submission through obold and stamps the correlation token into `admin_comment`; a pure-Lua
+  wire module (`obol_wire.lua`) mirroring `internal/wire` (IEEE crc32 verified equal to Go's,
+  bidirectional frame cross-validation in `go test ./seam/lua/`); a Unix-socket transport
+  (luasocket with a LuaJIT FFI fallback); and prolog/epilog scripts that BIND at job start and
+  SETTLE on exit. The shim sets its own `package.path`/`cpath` (slurmctld's embedded interpreter
+  does not inherit `LUA_PATH`), coerces `job_desc.time_limit` (a float) to integer seconds, and
+  the transport uses a stream socket with an accumulating read — all validated against real
+  Slurm 22.05. GATE-only — the burst `site_factor` plugin remains v0.3.0.
 - `obol` management CLI (`cmd/obol`, `internal/cli`): talks to obold over its socket
   (decision #19 — the daemon is the single authority). Verbs: `show` (balance, burn rate,
   time-to-empty, burst, live work, conservation), `gate`, `bind`, `settle`, `ping`. The
