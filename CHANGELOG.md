@@ -22,6 +22,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   rejected as lapsed against the daemon's epoch clock. Regression test added.
 
 ### Added
+- AWS ParallelCluster integration tier (`test/integration/`, `make integ-pcluster`): a
+  build-tagged (`//go:build integration`) harness that deploys the seam to a real, already-running
+  PC head node over SSH, seeds a budget, and drives the `sbatch` lifecycle on multi-node Slurm
+  (funded escrow + token stamp + settle/refund + conservation; unfunded rejection). Reads cluster
+  coordinates from `OBOL_INTEG_*` env and skips cleanly when unset; never provisions or destroys
+  AWS resources. Partition→policy mapping modeled on the sibling `gauss/` project. See
+  `docs/INTEGRATION.md`.
 - Docker single-node Slurm integration tier (`test/docker/`, `make integ-docker`): builds a
   Rocky 9 image running munge + slurmctld + slurmd + slurmdbd + mariadb with the obol GATE seam
   installed, and a build-tagged Go harness (`//go:build docker_integration`) that drives real

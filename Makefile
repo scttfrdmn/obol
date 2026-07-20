@@ -8,7 +8,7 @@ LDFLAGS     := -X main.version=$(VERSION)
 # version pin is required for `go run` to resolve it.
 GOLANGCI    := $(shell command -v golangci-lint 2>/dev/null || echo "go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2")
 
-.PHONY: build test race lint cover fmt fmt-check vet tidy check clean integ-docker
+.PHONY: build test race lint cover fmt fmt-check vet tidy check clean integ-docker integ-pcluster
 
 build: ## build obold + obol into ./bin
 	@mkdir -p bin
@@ -24,6 +24,9 @@ integ-docker: ## build the single-node Slurm image and run the containerized sea
 	GOOS=linux GOARCH=$(shell go env GOARCH) go build -o test/docker/bin/obold ./cmd/obold
 	GOOS=linux GOARCH=$(shell go env GOARCH) go build -o test/docker/bin/obol  ./cmd/obol
 	go test -tags=docker_integration -count=1 -v -timeout 15m ./test/docker/
+
+integ-pcluster: ## run the AWS ParallelCluster integration test (needs OBOL_INTEG_* env; skips otherwise)
+	go test -tags=integration -count=1 -v -timeout 20m ./test/integration/
 
 race: ## run all tests under the race detector (REQUIRED for concurrency changes)
 	go test -race -count=1 $(PKG)
