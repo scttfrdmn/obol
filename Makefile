@@ -10,9 +10,10 @@ GOLANGCI    := $(shell command -v golangci-lint 2>/dev/null || echo "go run gith
 
 .PHONY: build test race lint cover fmt fmt-check vet tidy check clean
 
-build: ## build obold into ./bin
+build: ## build obold + obol into ./bin
 	@mkdir -p bin
-	go build -ldflags "$(LDFLAGS)" -o bin/$(BINARY) ./cmd/$(BINARY)
+	go build -ldflags "$(LDFLAGS)" -o bin/obold ./cmd/obold
+	go build -ldflags "$(LDFLAGS)" -o bin/obol ./cmd/obol
 
 test: ## run all tests
 	go test $(PKG)

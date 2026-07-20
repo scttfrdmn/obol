@@ -17,12 +17,25 @@ time banks burst permission; concurrency spends it.
 | Component | State |
 |-----------|-------|
 | `internal/budget` — the kernel | **built & tested** (conservation + concurrency proven under `-race`, crash-safe WAL durability) |
-| `cmd/obold` — the sidecar daemon | stub; tracked in milestone `v0.1.0` |
+| `cmd/obold` — the sidecar daemon | **built & tested** — serves GATE/BIND/SETTLE/STATUS over a Unix socket |
+| `cmd/obol` — the management CLI | **built & tested** — `show`/`gate`/`bind`/`settle`/`ping` over the socket |
 | Lua `job_submit` shim + `site_factor` plugin | designed (`docs/SEAM_DESIGN.md`); validation on burstlab clusters pending |
 
 The architecture — why a sidecar daemon, the three-tier latency model, the `admin_comment`
 correlation token, the owned-vs-rented partition policy axis — is documented in
 [`docs/SEAM_DESIGN.md`](docs/SEAM_DESIGN.md).
+
+## Try it
+
+```
+make build                              # -> bin/obold, bin/obol
+bin/obold -socket /tmp/obold.sock -state-dir /tmp/obol -create -balance 5000 -rate 1 &
+bin/obol --socket /tmp/obold.sock show
+tok=$(bin/obol --socket /tmp/obold.sock gate --account lab --partition cloud --time-limit 1000)
+bin/obol --socket /tmp/obold.sock bind   --token "${tok#allow }" --jobid 42
+bin/obol --socket /tmp/obold.sock settle --jobid 42 --kind complete --runtime 300
+bin/obol --socket /tmp/obold.sock show   # balance debited by the 300s consumed, tail refunded
+```
 
 ## Build
 

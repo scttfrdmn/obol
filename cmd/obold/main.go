@@ -88,6 +88,10 @@ func run(sock, dir string, sync, create bool, rate, b0 int64, window time.Durati
 // openOrCreate recovers an existing budget from dir, or creates a fresh one when
 // -create is set and no snapshot exists. Without -create, a missing budget is a
 // fatal misconfiguration rather than a silent empty budget.
+//
+// A freshly created budget's window is [now, now+window): it must be anchored to
+// the same clock the server feeds transitions (epoch seconds), or every gate
+// would see now >= TE and reject as lapsed.
 func openOrCreate(dir string, sync, create bool, rate, b0 int64, window time.Duration) (*budget.Budget, error) {
 	bd, err := budget.OpenBudget(dir, sync)
 	if err == nil {
@@ -96,6 +100,7 @@ func openOrCreate(dir string, sync, create bool, rate, b0 int64, window time.Dur
 	if !create {
 		return nil, fmt.Errorf("open budget in %s: %w (pass -create to bootstrap)", dir, err)
 	}
+	now := time.Now().Unix()
 	secs := budget.Seconds(window.Seconds())
-	return budget.NewDurable(dir, rate, b0, 0, secs, sync)
+	return budget.NewDurable(dir, rate, b0, now, now+secs, sync)
 }

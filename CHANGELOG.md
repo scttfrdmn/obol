@@ -16,7 +16,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Documented that `main` is not branch-protected (solo project); PRs remain the working
   convention for CI-on-change and a reviewable diff rather than an enforced gate.
 
+### Fixed
+- `obold -create` now anchors a fresh budget's window at the current clock
+  (`[now, now+window)`) instead of `[0, window)`; previously every gate saw `now >= TE` and
+  rejected as lapsed against the daemon's epoch clock. Regression test added.
+
 ### Added
+- `obol` management CLI (`cmd/obol`, `internal/cli`): talks to obold over its socket
+  (decision #19 — the daemon is the single authority). Verbs: `show` (balance, burn rate,
+  time-to-empty, burst, live work, conservation), `gate`, `bind`, `settle`, `ping`. The
+  `--socket` flag works before or after the verb; a clean gate rejection exits 3, a transport
+  error exits 1. Tests drive every verb against an in-process daemon over a real socket.
+- Budget `Report(now)` inspector (`internal/budget`): a read-only, single-lock snapshot
+  (balance, ledger, live counts, burst, conservation, time-to-empty) backing `obol show`.
+  Additive — no transition, no money/burst-path change.
+- Wire `STATUS` request/response (`internal/wire`) carrying the snapshot for `obol show`.
 - Shim fail-mode model (`internal/shim`): the local open/closed gate decision the job_submit
   hook makes when obold is slow or down (`docs/SEAM_DESIGN.md` §6/§7). Hard timeout treats a
   slow daemon as down; a static per-partition class table decides fail-closed (cloud) vs

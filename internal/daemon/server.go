@@ -101,6 +101,8 @@ func (s *Server) dispatch(req *wire.Frame) *wire.Frame {
 		return s.handleBind(req.Bind)
 	case wire.KindSettle:
 		return s.handleSettle(req.Settle)
+	case wire.KindStatus:
+		return s.handleStatus()
 	case wire.KindPing:
 		return wire.PingFrame() // echo: liveness only
 	default:
@@ -191,6 +193,22 @@ func (s *Server) handleSettle(req *wire.SettleRequest) *wire.Frame {
 		s.mu.Unlock()
 	}
 	return &wire.Frame{MsgKind: wire.KindSettle, SettleResp: &wire.SettleResponse{OK: true}}
+}
+
+// handleStatus returns a consistent snapshot of the budget for `obol show`. It
+// reads the kernel's Status inspector (read-only, one lock) and maps it to the
+// wire response.
+func (s *Server) handleStatus() *wire.Frame {
+	st := s.bd.Report(s.now())
+	return &wire.Frame{MsgKind: wire.KindStatus, StatusResp: &wire.StatusResponse{
+		C: st.C, B0: st.B0, B: st.B, Reserved: st.Reserved, Consumed: st.Consumed,
+		WriteOff: st.WriteOff, TS: st.TS, TE: st.TE,
+		LiveEscrows: st.LiveEscrows, LiveArrays: st.LiveArrays,
+		BurstEnabled: st.BurstEnabled, BurstPot: st.BurstPot,
+		BurstCeiling: st.BurstCeiling, RLive: st.RLive,
+		Lapsed: st.Lapsed, ConservationOK: st.ConservationOK,
+		ConservationSum: st.ConservationSum, TimeToEmpty: st.TimeToEmpty(),
+	}}
 }
 
 // mintToken returns a unique, unforgeable correlation token. The "budget:" prefix
