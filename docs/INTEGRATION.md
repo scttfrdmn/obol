@@ -62,7 +62,48 @@ is the honest boundary of what these tiers prove today.
 
 ## ParallelCluster (`make integ-pcluster`)
 
-See the harness under `test/integration/`. It requires an existing PC cluster and
-AWS credentials, reads cluster coordinates from environment variables, and skips
-with a clear message when they are unset. It never provisions AWS resources
-unless explicitly told to. (Added in a later PR.)
+The cloud counterpart to the Docker tier: it deploys the seam to a **real,
+already-running** AWS ParallelCluster head node over SSH, seeds a budget, and
+drives the `sbatch` lifecycle on multi-node Slurm. The harness lives in
+`test/integration/pcluster_test.go` (`//go:build integration`).
+
+```
+export OBOL_INTEG_CLUSTER=gauss              # enables the test
+export OBOL_INTEG_HEAD=<head-node-ip>
+export OBOL_INTEG_SSH_KEY=~/.ssh/cluster.pem
+export OBOL_INTEG_SSH_USER=rocky             # optional (default rocky)
+export OBOL_INTEG_PARTITION=serial-requeue   # optional
+export OBOL_INTEG_ACCOUNT=obol_test          # optional
+export OBOL_INTEG_ARCH=arm64                 # optional, for Graviton clusters
+make integ-pcluster
+```
+
+With `OBOL_INTEG_CLUSTER` unset, the test **skips** — safe to run anywhere.
+
+**What it does:** builds a linux `obold`/`obol`, `scp`s them plus the Lua seam
+and prolog/epilog to the head node, installs them, seeds a fresh budget, wires
+`JobSubmitPlugins=lua` + `Prolog`/`Epilog` into `slurm.conf`, and
+`scontrol reconfigure`s. Then it submits a funded job (asserts escrow + token in
+`admin_comment` + settle/refund + conservation) and an unfunded job (asserts
+rejection). Teardown stops obold and removes the plugin lines.
+
+**Safety / scope:**
+- It **never creates or destroys AWS resources** — the cluster must already
+  exist. There is no `pcluster create-cluster` here (CLAUDE.md's no-destructive
+  rule). It only SSHes in and runs `sbatch`/`scontrol`/`sacctmgr`.
+- It assumes passwordless `sudo` on the head node (the PC default admin user).
+- It exercises **GATE + epilog-SETTLE** only — not the burst `site_factor` or the
+  slurmdbd completion feed (#13).
+
+**Partition → policy mapping.** Model the cloud/on-prem policy classes on the
+sibling `gauss/` PC 3.15 project's partitions. In obol's fail-mode table
+(`internal/shim`), a cloud/rented partition fails **closed** and an owned/on-prem
+partition fails **open**. For a gauss-style cluster:
+
+| gauss partition | class | obol fail mode |
+|-----------------|-------|----------------|
+| `serial-requeue`, `sapphire`, `bigmem` (on-demand/spot EC2) | cloud | fail closed |
+| a reserved/owned queue, if any | on-prem | fail open |
+
+Set `OBOL_INTEG_PARTITION` to the partition you want to exercise; the default
+`serial-requeue` matches gauss.
