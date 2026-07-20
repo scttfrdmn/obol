@@ -17,6 +17,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   convention for CI-on-change and a reviewable diff rather than an enforced gate.
 
 ### Added
+- Wire protocol (`internal/wire`): length-prefixed, crc-checked, versioned local-socket
+  frames for `GATE` / `BIND` / `SETTLE` (plus `PING`), per `docs/SEAM_DESIGN.md` §8. Framing
+  mirrors the kernel WAL; round-trip, multi-frame, version-mismatch, and corruption/truncation
+  tests included.
 - Budget kernel (`internal/budget`): atomic submit-gate with escrow/refund, per-partition
   policy flags (`bill_infra_failures`, `allow_requeue`), period lapse, job arrays with
   per-task settlement, and an explicit burst token bucket with fixed-point banking.
