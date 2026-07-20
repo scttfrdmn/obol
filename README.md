@@ -1,9 +1,11 @@
 # obol
 
-> **Working name.** `obol` (an ancient small-denomination coin) is a placeholder.
-> See `CLAUDE.md` for the one-command rename.
+[![CI](https://github.com/scttfrdmn/obol/actions/workflows/ci.yml/badge.svg)](https://github.com/scttfrdmn/obol/actions/workflows/ci.yml)
+[![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 
 Hierarchical, monetary budget enforcement for [Slurm](https://slurm.schedmd.com/).
+
+Named for the [obol](https://en.wikipedia.org/wiki/Obol_(coin)), an ancient small-denomination coin.
 
 Users and groups (Slurm accounts) map to budgets denominated in **money**, independent of
 Slurm's service units. The enforcement point is job submission: a job that cannot be funded
@@ -16,7 +18,7 @@ time banks burst permission; concurrency spends it.
 |-----------|-------|
 | `internal/budget` — the kernel | **built & tested** (conservation + concurrency proven under `-race`, crash-safe WAL durability) |
 | `cmd/obold` — the sidecar daemon | stub; tracked in milestone `v0.1.0` |
-| Lua `job_submit` shim + `site_factor` plugin | designed (`docs/SEAM_DESIGN.md`); validated on burstlab clusters |
+| Lua `job_submit` shim + `site_factor` plugin | designed (`docs/SEAM_DESIGN.md`); validation on burstlab clusters pending |
 
 The architecture — why a sidecar daemon, the three-tier latency model, the `admin_comment`
 correlation token, the owned-vs-rented partition policy axis — is documented in
@@ -29,7 +31,7 @@ make build     # -> bin/obold
 make check     # fmt + vet + lint + race  (what CI enforces)
 ```
 
-Requires Go 1.26 (CI also runs 1.25, the previous supported major).
+Requires Go 1.26 (single supported toolchain; CI runs 1.26 only).
 
 ## Design invariants
 

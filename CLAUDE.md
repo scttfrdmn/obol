@@ -58,7 +58,9 @@ describing the tension instead.
 `PLAN.md`, or task checklists in the repo. Work is tracked as Issues, grouped by Milestones,
 labeled, and closed by PRs.
 
-- **Every change goes through a PR.** No direct commits to `main`. `main` is protected.
+- **Every change goes through a PR** (convention, not enforcement — this is a solo project, so
+  `main` is not branch-protected; keep using PRs anyway for CI-on-PR and a reviewable diff, and
+  self-merge). Squash-merge.
 - **Every PR links an issue** (`Closes #N`). No issue → open one first.
 - **One logical change per PR.** Small and reviewable beats large and comprehensive.
 - **Branch naming:** `<type>/<issue#>-<slug>`, e.g. `feat/12-gate-protocol`,

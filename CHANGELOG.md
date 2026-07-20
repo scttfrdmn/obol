@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Documentation currency pass: corrected the toolchain note (CI runs Go 1.26 only, not 1.25),
+  reworded the Slurm seam status from "validated on burstlab" to "validation pending" to match
+  `docs/SEAM_DESIGN.md`, removed the stale "working name / one-command rename" note, aligned the
+  invariant count across `CONTRIBUTING.md` and `SECURITY.md` with the canonical five in
+  `CLAUDE.md`, and added CI/license badges to the README.
+- Documented that `main` is not branch-protected (solo project); PRs remain the working
+  convention for CI-on-change and a reviewable diff rather than an enforced gate.
+
 ### Added
 - Budget kernel (`internal/budget`): atomic submit-gate with escrow/refund, per-partition
   policy flags (`bill_infra_failures`, `allow_requeue`), period lapse, job arrays with
