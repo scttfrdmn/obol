@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-07-20
+
+First tagged release: the obold MVP. A working, validated money-gate for Slurm —
+the proven budget kernel, the daemon and management CLI over a local socket, the
+GATE Lua seam, and a three-tier test story (unit → containerized Slurm → AWS
+ParallelCluster). Deferred to a later release: WAL group commit (#6), the tier-2
+lock-cheap read path (#7), and config durability (#8).
+
 ### Changed
 - Documentation currency pass: corrected the toolchain note (CI runs Go 1.26 only, not 1.25),
   reworded the Slurm seam status from "validated on burstlab" to "validation pending" to match
@@ -77,4 +85,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Seam design document (`docs/SEAM_DESIGN.md`) describing the Slurm attachment.
 - Project scaffold: CI (race + lint + coverage), release pipeline, governance.
 
-[Unreleased]: https://github.com/scttfrdmn/obol/commits/main
+[Unreleased]: https://github.com/scttfrdmn/obol/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/scttfrdmn/obol/releases/tag/v0.1.0
