@@ -49,6 +49,7 @@ const (
 	KindBind   Kind = "bind"
 	KindSettle Kind = "settle"
 	KindPing   Kind = "ping"
+	KindStatus Kind = "status"
 )
 
 // SettleKind names how a job ended, routing to the matching kernel transition.
@@ -125,6 +126,36 @@ type SettleResponse struct {
 	Reason string `json:"reason,omitempty"`
 }
 
+// StatusRequest asks the daemon for a snapshot of the budget. It carries no
+// fields today (single-budget MVP); a budget selector is added with multi-budget
+// resolution (#18).
+type StatusRequest struct{}
+
+// StatusResponse is a point-in-time snapshot for the `obol show` verb. It mirrors
+// budget.Status; the daemon fills it from budget.Budget.Status(now).
+type StatusResponse struct {
+	C           int64 `json:"c"`
+	B0          int64 `json:"b0"`
+	B           int64 `json:"b"`
+	Reserved    int64 `json:"reserved"`
+	Consumed    int64 `json:"consumed"`
+	WriteOff    int64 `json:"writeoff"`
+	TS          int64 `json:"ts"`
+	TE          int64 `json:"te"`
+	LiveEscrows int   `json:"live_escrows"`
+	LiveArrays  int   `json:"live_arrays"`
+
+	BurstEnabled bool  `json:"burst_enabled"`
+	BurstPot     int64 `json:"burst_pot,omitempty"`
+	BurstCeiling int64 `json:"burst_ceiling,omitempty"`
+	RLive        int64 `json:"rlive,omitempty"`
+
+	Lapsed          bool  `json:"lapsed"`
+	ConservationOK  bool  `json:"conservation_ok"`
+	ConservationSum int64 `json:"conservation_sum"`
+	TimeToEmpty     int64 `json:"time_to_empty"` // seconds; -1 if C<=0
+}
+
 // Frame is the on-wire envelope. Exactly one of the typed request/response
 // payloads is populated, selected by MsgKind. Version guards against a
 // shim/daemon mismatch.
@@ -136,11 +167,13 @@ type Frame struct {
 	Gate   *GateRequest   `json:"gate,omitempty"`
 	Bind   *BindRequest   `json:"bind,omitempty"`
 	Settle *SettleRequest `json:"settle,omitempty"`
+	Status *StatusRequest `json:"status,omitempty"`
 
 	// Responses (one populated per response frame).
 	GateResp   *GateResponse   `json:"gate_resp,omitempty"`
 	BindResp   *BindResponse   `json:"bind_resp,omitempty"`
 	SettleResp *SettleResponse `json:"settle_resp,omitempty"`
+	StatusResp *StatusResponse `json:"status_resp,omitempty"`
 }
 
 // Sentinel errors surfaced by decode. ErrVersion is distinguished so a caller
@@ -223,3 +256,6 @@ func SettleFrame(req *SettleRequest) *Frame { return &Frame{MsgKind: KindSettle,
 
 // PingFrame is a bare health-check request.
 func PingFrame() *Frame { return &Frame{MsgKind: KindPing} }
+
+// StatusFrame wraps a StatusRequest in a request Frame.
+func StatusFrame() *Frame { return &Frame{MsgKind: KindStatus, Status: &StatusRequest{}} }

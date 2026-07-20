@@ -31,6 +31,11 @@ func TestRoundTrip(t *testing.T) {
 		{"settle-complete", SettleFrame(&SettleRequest{JobID: "4711", Kind: SettleComplete, Runtime: 1800})},
 		{"settle-infrafail", SettleFrame(&SettleRequest{Token: "budget:xyz", Kind: SettleInfraFail, Elapsed: 900})},
 		{"settle-resp", &Frame{MsgKind: KindSettle, SettleResp: &SettleResponse{OK: true}}},
+		{"status", StatusFrame()},
+		{"status-resp", &Frame{MsgKind: KindStatus, StatusResp: &StatusResponse{
+			C: 2, B0: 1000, B: 800, Reserved: 200, TS: 0, TE: 1000, LiveEscrows: 1,
+			ConservationOK: true, ConservationSum: 1000, TimeToEmpty: 400,
+		}}},
 		{"ping", PingFrame()},
 	}
 	for _, tc := range cases {
@@ -74,6 +79,10 @@ func assertFrameEqual(t *testing.T, want, got *Frame) {
 	case want.Settle != nil:
 		if got.Settle == nil || *got.Settle != *want.Settle {
 			t.Errorf("settle: got %+v, want %+v", got.Settle, want.Settle)
+		}
+	case want.StatusResp != nil:
+		if got.StatusResp == nil || *got.StatusResp != *want.StatusResp {
+			t.Errorf("status_resp: got %+v, want %+v", got.StatusResp, want.StatusResp)
 		}
 	}
 }
