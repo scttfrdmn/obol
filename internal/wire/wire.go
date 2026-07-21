@@ -50,6 +50,8 @@ const (
 	KindSettle Kind = "settle"
 	KindPing   Kind = "ping"
 	KindStatus Kind = "status"
+	KindTopUp  Kind = "topup"
+	KindList   Kind = "list"
 )
 
 // SettleKind names how a job ended, routing to the matching kernel transition.
@@ -162,6 +164,42 @@ type StatusResponse struct {
 	Reason  string `json:"reason,omitempty"`
 }
 
+// TopUpRequest adds money to an account's budget (admin-only). Amount is
+// positive (add-only).
+type TopUpRequest struct {
+	Account string `json:"account"`
+	Amount  int64  `json:"amount"`
+}
+
+// TopUpResponse acknowledges a top-up with the new balance.
+type TopUpResponse struct {
+	OK         bool   `json:"ok"`
+	Reason     string `json:"reason,omitempty"`
+	NewBalance int64  `json:"new_balance,omitempty"`
+	NewB0      int64  `json:"new_b0,omitempty"`
+}
+
+// ListRequest asks for a summary of the accounts the caller may see.
+type ListRequest struct{}
+
+// ListAccount is one row of a ListResponse.
+type ListAccount struct {
+	Account  string `json:"account"`
+	B        int64  `json:"b"`
+	B0       int64  `json:"b0"`
+	Reserved int64  `json:"reserved"`
+	Consumed int64  `json:"consumed"`
+	Live     int    `json:"live"`
+	Lapsed   bool   `json:"lapsed"`
+}
+
+// ListResponse enumerates the visible accounts.
+type ListResponse struct {
+	OK       bool          `json:"ok"`
+	Reason   string        `json:"reason,omitempty"`
+	Accounts []ListAccount `json:"accounts,omitempty"`
+}
+
 // Frame is the on-wire envelope. Exactly one of the typed request/response
 // payloads is populated, selected by MsgKind. Version guards against a
 // shim/daemon mismatch.
@@ -174,12 +212,16 @@ type Frame struct {
 	Bind   *BindRequest   `json:"bind,omitempty"`
 	Settle *SettleRequest `json:"settle,omitempty"`
 	Status *StatusRequest `json:"status,omitempty"`
+	TopUp  *TopUpRequest  `json:"topup,omitempty"`
+	List   *ListRequest   `json:"list,omitempty"`
 
 	// Responses (one populated per response frame).
 	GateResp   *GateResponse   `json:"gate_resp,omitempty"`
 	BindResp   *BindResponse   `json:"bind_resp,omitempty"`
 	SettleResp *SettleResponse `json:"settle_resp,omitempty"`
 	StatusResp *StatusResponse `json:"status_resp,omitempty"`
+	TopUpResp  *TopUpResponse  `json:"topup_resp,omitempty"`
+	ListResp   *ListResponse   `json:"list_resp,omitempty"`
 }
 
 // Sentinel errors surfaced by decode. ErrVersion is distinguished so a caller
@@ -267,3 +309,11 @@ func PingFrame() *Frame { return &Frame{MsgKind: KindPing} }
 func StatusFrame(account string) *Frame {
 	return &Frame{MsgKind: KindStatus, Status: &StatusRequest{Account: account}}
 }
+
+// TopUpFrame wraps a TopUpRequest in a request Frame.
+func TopUpFrame(account string, amount int64) *Frame {
+	return &Frame{MsgKind: KindTopUp, TopUp: &TopUpRequest{Account: account, Amount: amount}}
+}
+
+// ListFrame is a bare list request.
+func ListFrame() *Frame { return &Frame{MsgKind: KindList, List: &ListRequest{}} }

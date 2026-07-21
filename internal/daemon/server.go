@@ -95,12 +95,15 @@ func (s *Server) Serve(ln net.Listener) error {
 // long-lived multiplexed connection too (e.g. the CLI).
 func (s *Server) handleConn(conn net.Conn) {
 	defer func() { _ = conn.Close() }()
+	// Read the kernel-verified peer identity once per connection; management verbs
+	// authorize against it (not the spoofable wire uid).
+	peer := peerCredFunc(conn)
 	for {
 		req, err := wire.ReadFrame(conn)
 		if err != nil {
 			return // EOF or protocol error: drop the connection
 		}
-		resp := s.dispatch(req)
+		resp := s.dispatch(req, peer)
 		if resp == nil {
 			continue
 		}
@@ -113,7 +116,7 @@ func (s *Server) handleConn(conn net.Conn) {
 // dispatch routes one request frame to its handler and returns the response
 // frame. An unknown or malformed kind yields a rejecting response rather than a
 // dropped connection, so a version-skewed shim gets a clear answer.
-func (s *Server) dispatch(req *wire.Frame) *wire.Frame {
+func (s *Server) dispatch(req *wire.Frame, peer PeerCred) *wire.Frame {
 	switch req.MsgKind {
 	case wire.KindGate:
 		return s.handleGate(req.Gate)
@@ -122,7 +125,11 @@ func (s *Server) dispatch(req *wire.Frame) *wire.Frame {
 	case wire.KindSettle:
 		return s.handleSettle(req.Settle)
 	case wire.KindStatus:
-		return s.handleStatus(req.Status)
+		return s.handleStatus(req.Status, peer)
+	case wire.KindTopUp:
+		return s.handleTopUp(req.TopUp, peer)
+	case wire.KindList:
+		return s.handleList(peer)
 	case wire.KindPing:
 		return wire.PingFrame() // echo: liveness only
 	default:
@@ -254,7 +261,7 @@ func (s *Server) handleSettle(req *wire.SettleRequest) *wire.Frame {
 // `obol show`. When the request names an account, that budget is used; when it
 // doesn't, the sole account is used if exactly one is configured, else an error
 // asks which. A status error is carried as a rejecting StatusResp (Reason).
-func (s *Server) handleStatus(req *wire.StatusRequest) *wire.Frame {
+func (s *Server) handleStatus(req *wire.StatusRequest, peer PeerCred) *wire.Frame {
 	var bd *budget.Budget
 	account := ""
 	if req != nil {
@@ -270,6 +277,10 @@ func (s *Server) handleStatus(req *wire.StatusRequest) *wire.Frame {
 	} else {
 		return statusReject("multiple accounts configured; specify --account")
 	}
+	// Read visibility: admins see all; non-admins see their accounts + open ones.
+	if !s.canRead(account, peer) {
+		return statusReject("not authorized to view account " + account)
+	}
 	st := bd.Report(s.now())
 	return &wire.Frame{MsgKind: wire.KindStatus, StatusResp: &wire.StatusResponse{
 		C: st.C, B0: st.B0, B: st.B, Reserved: st.Reserved, Consumed: st.Consumed,
@@ -281,6 +292,50 @@ func (s *Server) handleStatus(req *wire.StatusRequest) *wire.Frame {
 		ConservationSum: st.ConservationSum, TimeToEmpty: st.TimeToEmpty(),
 		Account: account, OK: true,
 	}}
+}
+
+// handleTopUp adds money to an account's budget. It is a MUTATING verb: the
+// caller must be an admin (kernel-verified peer uid), checked before any change.
+func (s *Server) handleTopUp(req *wire.TopUpRequest, peer PeerCred) *wire.Frame {
+	if req == nil {
+		return topUpReject("empty topup request")
+	}
+	if ok, reason := s.requireAdmin(peer); !ok {
+		return topUpReject(reason)
+	}
+	bd, err := s.reg.Resolve(req.Account)
+	if err != nil {
+		return topUpReject(err.Error())
+	}
+	if err := bd.TopUp(req.Amount, s.now()); err != nil {
+		return topUpReject(err.Error())
+	}
+	st := bd.Report(s.now())
+	return &wire.Frame{MsgKind: wire.KindTopUp, TopUpResp: &wire.TopUpResponse{
+		OK: true, NewBalance: st.B, NewB0: st.B0,
+	}}
+}
+
+// handleList enumerates the accounts the caller may see (admins: all; others:
+// their accounts + open budgets).
+func (s *Server) handleList(peer PeerCred) *wire.Frame {
+	now := s.now()
+	var rows []wire.ListAccount
+	for _, name := range s.reg.Names() {
+		if !s.canRead(name, peer) {
+			continue
+		}
+		bd, err := s.reg.Resolve(name)
+		if err != nil {
+			continue
+		}
+		st := bd.Report(now)
+		rows = append(rows, wire.ListAccount{
+			Account: name, B: st.B, B0: st.B0, Reserved: st.Reserved,
+			Consumed: st.Consumed, Live: st.LiveEscrows + st.LiveArrays, Lapsed: st.Lapsed,
+		})
+	}
+	return &wire.Frame{MsgKind: wire.KindList, ListResp: &wire.ListResponse{OK: true, Accounts: rows}}
 }
 
 // mintToken returns a unique, unforgeable correlation token. The "budget:" prefix
@@ -303,4 +358,8 @@ func settleReject(reason string) *wire.Frame {
 
 func statusReject(reason string) *wire.Frame {
 	return &wire.Frame{MsgKind: wire.KindStatus, StatusResp: &wire.StatusResponse{OK: false, Reason: reason}}
+}
+
+func topUpReject(reason string) *wire.Frame {
+	return &wire.Frame{MsgKind: wire.KindTopUp, TopUpResp: &wire.TopUpResponse{OK: false, Reason: reason}}
 }

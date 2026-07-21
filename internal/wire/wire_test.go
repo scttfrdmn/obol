@@ -37,6 +37,9 @@ func TestRoundTrip(t *testing.T) {
 			ConservationOK: true, ConservationSum: 1000, TimeToEmpty: 400,
 			Account: "lab_smith", OK: true,
 		}}},
+		{"topup", TopUpFrame("lab_smith", 5000)},
+		{"topup-resp", &Frame{MsgKind: KindTopUp, TopUpResp: &TopUpResponse{OK: true, NewBalance: 15000, NewB0: 15000}}},
+		{"list", ListFrame()},
 		{"ping", PingFrame()},
 	}
 	for _, tc := range cases {
@@ -84,6 +87,14 @@ func assertFrameEqual(t *testing.T, want, got *Frame) {
 	case want.StatusResp != nil:
 		if got.StatusResp == nil || *got.StatusResp != *want.StatusResp {
 			t.Errorf("status_resp: got %+v, want %+v", got.StatusResp, want.StatusResp)
+		}
+	case want.TopUp != nil:
+		if got.TopUp == nil || *got.TopUp != *want.TopUp {
+			t.Errorf("topup: got %+v, want %+v", got.TopUp, want.TopUp)
+		}
+	case want.TopUpResp != nil:
+		if got.TopUpResp == nil || *got.TopUpResp != *want.TopUpResp {
+			t.Errorf("topup_resp: got %+v, want %+v", got.TopUpResp, want.TopUpResp)
 		}
 	}
 }

@@ -19,8 +19,15 @@ var ErrNoBudget = errors.New("no budget for account")
 // with no entry do not roll up. Budgets are created/opened at startup, one WAL +
 // snapshot directory each; the kernel is untouched.
 type Registry struct {
-	budgets map[string]*budget.Budget
-	access  map[string]AccountConfig // per-account allow-lists (access.go)
+	budgets     map[string]*budget.Budget
+	access      map[string]AccountConfig // per-account allow-lists (access.go)
+	adminUsers  []string                 // admins for mutating verbs (root is always admin)
+	adminGroups []string
+}
+
+// adminEnforced reports whether an admin allow-list is set (mutating-verb authz on).
+func (r *Registry) adminEnforced() bool {
+	return len(r.adminUsers) > 0 || len(r.adminGroups) > 0
 }
 
 // nowFunc returns epoch seconds; injected so a fresh budget's window anchors to
@@ -31,8 +38,10 @@ type nowFunc func() budget.Seconds
 // controls WAL fdatasync (production true). now anchors freshly-created windows.
 func NewRegistry(cfg *Config, stateDir string, sync bool, now nowFunc) (*Registry, error) {
 	r := &Registry{
-		budgets: make(map[string]*budget.Budget, len(cfg.Accounts)),
-		access:  make(map[string]AccountConfig, len(cfg.Accounts)),
+		budgets:     make(map[string]*budget.Budget, len(cfg.Accounts)),
+		access:      make(map[string]AccountConfig, len(cfg.Accounts)),
+		adminUsers:  cfg.AdminUsers,
+		adminGroups: cfg.AdminGroups,
 	}
 	for _, a := range cfg.Accounts {
 		bd, err := openOrCreateAccount(stateDir, a, sync, now)

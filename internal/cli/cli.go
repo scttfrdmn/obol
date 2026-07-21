@@ -31,6 +31,10 @@ func Run(args []string, out, errOut io.Writer) int {
 		return cmdBind(rest, out, errOut)
 	case "settle":
 		return cmdSettle(rest, out, errOut)
+	case "topup":
+		return cmdTopUp(rest, out, errOut)
+	case "list":
+		return cmdList(rest, out, errOut)
 	case "ping":
 		return cmdPing(rest, out, errOut)
 	case "help", "-h", "--help":
@@ -81,6 +85,8 @@ Usage:
   obol gate    --account A --partition P --time-limit S [--ntasks N]
   obol bind    --token T --jobid J
   obol settle  (--jobid J | --token T) --kind KIND [--runtime S] [--elapsed S]
+  obol topup   --account A --amount N    add money to an account (admin)
+  obol list                              list accounts and balances
   obol ping                              health-check the daemon
 
 Global:
