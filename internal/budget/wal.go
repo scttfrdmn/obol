@@ -26,6 +26,8 @@ type Command struct {
 	Runtime Seconds `json:"r,omitempty"`
 	Elapsed Seconds `json:"e,omitempty"`
 	Amount  Units   `json:"amt,omitempty"` // top-up amount (KindTopUp)
+	TS      Seconds `json:"ts,omitempty"`  // window start (KindSetWindow)
+	TE      Seconds `json:"te,omitempty"`  // window end (KindSetWindow)
 	Now     Seconds `json:"t,omitempty"`
 }
 
@@ -47,6 +49,8 @@ const (
 	KindLapse         = "lap"
 	KindTopUp         = "top"
 	KindReprice       = "rep"
+	KindSetRate       = "srate"
+	KindSetWindow     = "swin"
 )
 
 // WAL is an append-only command log. Record framing: [u32 len][u32 crc32][payload].

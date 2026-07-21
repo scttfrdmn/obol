@@ -255,3 +255,44 @@ func TestLogVerb(t *testing.T) {
 		t.Errorf("log missing expected transitions:\n%s", out)
 	}
 }
+
+// TestSetRateWindowVerbs drives set-rate and set-window against a single-budget
+// daemon (admin enforcement off) and confirms the config changes take.
+func TestSetRateWindowVerbs(t *testing.T) {
+	sock, bd := newDaemon(t)
+
+	if code, out, errOut := run(sock, "set-rate", "--account", "default", "--rate", "7"); code != 0 {
+		t.Fatalf("set-rate exit %d, stderr=%q", code, errOut)
+	} else if !strings.Contains(out, "set to 7") {
+		t.Errorf("set-rate out = %q", out)
+	}
+	if bd.Report(1).C != 7 {
+		t.Errorf("rate = %d, want 7", bd.Report(1).C)
+	}
+
+	// set-window with --window duration.
+	if code, _, errOut := run(sock, "set-window", "--account", "default", "--window", "1h"); code != 0 {
+		t.Fatalf("set-window --window exit %d, stderr=%q", code, errOut)
+	}
+	// set-window with explicit epoch start/end.
+	if code, _, errOut := run(sock, "set-window", "--account", "default", "--start", "0", "--end", "500000"); code != 0 {
+		t.Fatalf("set-window --start/--end exit %d, stderr=%q", code, errOut)
+	}
+	if r := bd.Report(1); r.TS != 0 || r.TE != 500000 {
+		t.Errorf("window = [%d,%d), want [0,500000)", r.TS, r.TE)
+	}
+}
+
+// TestSetVerbsBadArgs covers required-arg validation.
+func TestSetVerbsBadArgs(t *testing.T) {
+	sock, _ := newDaemon(t)
+	if code, _, _ := run(sock, "set-rate", "--account", "default", "--rate", "0"); code != 1 {
+		t.Errorf("set-rate rate=0: exit %d, want 1", code)
+	}
+	if code, _, _ := run(sock, "set-window", "--account", "default"); code != 1 {
+		t.Errorf("set-window with no window/start/end: exit %d, want 1", code)
+	}
+	if code, _, _ := run(sock, "set-window", "--account", "default", "--start", "bogus", "--end", "5"); code != 1 {
+		t.Errorf("set-window bad start: exit %d, want 1", code)
+	}
+}

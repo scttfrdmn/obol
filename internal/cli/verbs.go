@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/scttfrdmn/obol/internal/wire"
 )
@@ -247,6 +249,10 @@ func logDetail(e wire.LogEntry) string {
 	switch {
 	case e.Kind == "topup":
 		return fmt.Sprintf("amount=%d", e.Amount)
+	case e.Kind == "set-rate":
+		return fmt.Sprintf("rate=%d", e.Rate)
+	case e.Kind == "set-window":
+		return fmt.Sprintf("window=[%d,%d)", e.TS, e.TE)
 	case e.ArrayID != "":
 		d := "array=" + e.ArrayID
 		if e.N > 0 {
@@ -278,6 +284,90 @@ func logCostDetail(e wire.LogEntry) string {
 		d += fmt.Sprintf(" elapsed=%d", e.Elapsed)
 	}
 	return d
+}
+
+// cmdSetRate changes an account's flat cost rate (admin-gated daemon-side).
+func cmdSetRate(args []string, out, errOut io.Writer) int {
+	fs := flag.NewFlagSet("set-rate", flag.ContinueOnError)
+	fs.SetOutput(errOut)
+	socket := socketFlag(fs)
+	account := fs.String("account", "", "account")
+	rate := fs.Int64("rate", 0, "new flat cost rate (units/second, positive)")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if *account == "" || *rate <= 0 {
+		return fail(errOut, fmt.Errorf("--account and a positive --rate are required"))
+	}
+	resp, err := roundTrip(*socket, wire.SetRateFrame(*account, *rate))
+	if err != nil {
+		return fail(errOut, err)
+	}
+	return ackResult(out, errOut, resp, fmt.Sprintf("rate for %s set to %d/s", *account, *rate))
+}
+
+// cmdSetWindow changes an account's time window. Accepts either --window <dur>
+// (sets [now, now+dur)) or explicit --start/--end (RFC3339 or epoch seconds).
+func cmdSetWindow(args []string, out, errOut io.Writer) int {
+	fs := flag.NewFlagSet("set-window", flag.ContinueOnError)
+	fs.SetOutput(errOut)
+	socket := socketFlag(fs)
+	account := fs.String("account", "", "account")
+	window := fs.Duration("window", 0, "window length from now (e.g. 720h); alternative to --start/--end")
+	start := fs.String("start", "", "window start (RFC3339 or epoch seconds)")
+	end := fs.String("end", "", "window end (RFC3339 or epoch seconds)")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if *account == "" {
+		return fail(errOut, fmt.Errorf("--account is required"))
+	}
+	var ts, te int64
+	switch {
+	case *window > 0:
+		ts = time.Now().Unix()
+		te = ts + int64(window.Seconds())
+	case *start != "" && *end != "":
+		var err error
+		if ts, err = parseTime(*start); err != nil {
+			return fail(errOut, fmt.Errorf("--start: %w", err))
+		}
+		if te, err = parseTime(*end); err != nil {
+			return fail(errOut, fmt.Errorf("--end: %w", err))
+		}
+	default:
+		return fail(errOut, fmt.Errorf("provide --window, or both --start and --end"))
+	}
+	resp, err := roundTrip(*socket, wire.SetWindowFrame(*account, ts, te))
+	if err != nil {
+		return fail(errOut, err)
+	}
+	return ackResult(out, errOut, resp, fmt.Sprintf("window for %s set to [%d, %d)", *account, ts, te))
+}
+
+// ackResult renders a generic ack response.
+func ackResult(out, errOut io.Writer, resp *wire.Frame, okMsg string) int {
+	if resp.AckResp == nil || !resp.AckResp.OK {
+		r := "empty response"
+		if resp.AckResp != nil {
+			r = resp.AckResp.Reason
+		}
+		return fail(errOut, fmt.Errorf("rejected: %s", r))
+	}
+	pf(out, "ok: %s\n", okMsg)
+	return 0
+}
+
+// parseTime accepts RFC3339 or a bare epoch-seconds integer.
+func parseTime(s string) (int64, error) {
+	if n, err := strconv.ParseInt(s, 10, 64); err == nil {
+		return n, nil
+	}
+	t, err := time.Parse(time.RFC3339, s)
+	if err != nil {
+		return 0, fmt.Errorf("want RFC3339 or epoch seconds, got %q", s)
+	}
+	return t.Unix(), nil
 }
 
 // --- small formatting/parsing helpers ---

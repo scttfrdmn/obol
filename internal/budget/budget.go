@@ -68,13 +68,13 @@ type Budget struct {
 
 	B0 Units // original allocation, for the conservation check
 
-	// Policy flags (per budget). These, along with C/TS/TE above, are CONFIG:
-	// set at creation, captured in the initial snapshot, and immutable thereafter
-	// (issue #8). They are not logged commands, so WAL replay never changes them.
-	// If mutation is ever added (e.g. an `obol set-rate` verb), it MUST be a
-	// logged command applied through the replay path — a snapshot-only change
-	// would lose its ordering against the command stream and break the
-	// pure-(state, command, now) replay invariant.
+	// Config (per budget), captured in the snapshot. The cost rate C and window
+	// TS/TE are mutable via the SetRate/SetWindow LOGGED transitions (issue #8):
+	// each is a WAL command replayed in order, so a submit before a change replays
+	// at the old value and one after at the new — never a snapshot-only change,
+	// which would lose that ordering and break pure-(state, command, now) replay.
+	// The policy flags below remain set-at-creation (no mutation verb yet); if one
+	// is added it must likewise be a logged command.
 	BillInfraFailures bool    // on = cloud (user pays infra loss); off = on-prem (write off)
 	AllowRequeue      bool    // on = on-prem; off = cloud (requeue -> cancel)
 	K                 float64 // burst ceiling multiplier; <=0 means infinite (disabled)
@@ -404,6 +404,49 @@ func (bd *Budget) Reprice(jobID string, newRate Seconds, now Seconds) error {
 	e.Reserved -= delta
 	bd.ReservedTotal -= delta
 	bd.B += delta
+	return nil
+}
+
+// SetRate changes the budget's flat cost rate bd.C for FUTURE flat-rate submits.
+// Live escrows are unaffected — each froze its own rate (e.C) at submit — and the
+// money ledger is untouched, so conservation is trivially preserved. Node-type /
+// TRES pricing still overrides per job where configured; bd.C is the fallback.
+//
+// This is a logged config transition (issue #8: config mutation must be a logged
+// command replayed in order, never snapshot-only, so a submit before the change
+// replays at the old rate and one after at the new). Reject non-positive.
+func (bd *Budget) SetRate(c Seconds, now Seconds) error {
+	bd.mu.Lock()
+	defer bd.mu.Unlock()
+	defer bd.publishLocked()
+	if c <= 0 {
+		return ErrBadState
+	}
+	if err := bd.logCmd(Command{Kind: KindSetRate, C: c, Now: now}); err != nil {
+		return err
+	}
+	bd.C = c
+	return nil
+}
+
+// SetWindow changes the budget's time window [ts, te). It gates FUTURE submits
+// (the gate checks now against the new window); live escrows keep their funded
+// walltime and settle normally regardless — the kernel already settles live
+// escrows on a lapsed budget, so a shrunk or moved window cannot strand or
+// corrupt in-flight work. The money ledger is untouched (conservation preserved).
+//
+// Logged config transition (issue #8). Reject ts >= te.
+func (bd *Budget) SetWindow(ts, te Seconds, now Seconds) error {
+	bd.mu.Lock()
+	defer bd.mu.Unlock()
+	defer bd.publishLocked()
+	if ts >= te {
+		return ErrBadState
+	}
+	if err := bd.logCmd(Command{Kind: KindSetWindow, TS: ts, TE: te, Now: now}); err != nil {
+		return err
+	}
+	bd.TS, bd.TE = ts, te
 	return nil
 }
 

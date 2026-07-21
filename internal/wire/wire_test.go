@@ -41,6 +41,9 @@ func TestRoundTrip(t *testing.T) {
 		{"topup-resp", &Frame{MsgKind: KindTopUp, TopUpResp: &TopUpResponse{OK: true, NewBalance: 15000, NewB0: 15000}}},
 		{"list", ListFrame()},
 		{"log", LogFrame("lab_smith")},
+		{"set-rate", SetRateFrame("lab_smith", 5)},
+		{"set-window", SetWindowFrame("lab_smith", 100, 200)},
+		{"ack", &Frame{MsgKind: KindSetRate, AckResp: &AckResponse{OK: true}}},
 		{"ping", PingFrame()},
 	}
 	for _, tc := range cases {
@@ -96,6 +99,18 @@ func assertFrameEqual(t *testing.T, want, got *Frame) {
 	case want.TopUpResp != nil:
 		if got.TopUpResp == nil || *got.TopUpResp != *want.TopUpResp {
 			t.Errorf("topup_resp: got %+v, want %+v", got.TopUpResp, want.TopUpResp)
+		}
+	case want.SetRate != nil:
+		if got.SetRate == nil || *got.SetRate != *want.SetRate {
+			t.Errorf("set_rate: got %+v, want %+v", got.SetRate, want.SetRate)
+		}
+	case want.SetWindow != nil:
+		if got.SetWindow == nil || *got.SetWindow != *want.SetWindow {
+			t.Errorf("set_window: got %+v, want %+v", got.SetWindow, want.SetWindow)
+		}
+	case want.AckResp != nil:
+		if got.AckResp == nil || *got.AckResp != *want.AckResp {
+			t.Errorf("ack_resp: got %+v, want %+v", got.AckResp, want.AckResp)
 		}
 	}
 }

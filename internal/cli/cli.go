@@ -37,6 +37,10 @@ func Run(args []string, out, errOut io.Writer) int {
 		return cmdList(rest, out, errOut)
 	case "log":
 		return cmdLog(rest, out, errOut)
+	case "set-rate":
+		return cmdSetRate(rest, out, errOut)
+	case "set-window":
+		return cmdSetWindow(rest, out, errOut)
 	case "ping":
 		return cmdPing(rest, out, errOut)
 	case "help", "-h", "--help":
@@ -90,6 +94,8 @@ Usage:
   obol topup   --account A --amount N    add money to an account (admin)
   obol list                              list accounts and balances
   obol log     [--account A]             render an account's transaction log
+  obol set-rate   --account A --rate N   set an account's flat cost rate (admin)
+  obol set-window --account A (--window D | --start T --end T)  set the window (admin)
   obol ping                              health-check the daemon
 
 Global:
