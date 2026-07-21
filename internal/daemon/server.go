@@ -151,6 +151,8 @@ func (s *Server) dispatch(req *wire.Frame, peer PeerCred) *wire.Frame {
 		return s.handleAttach(req.Attach, peer)
 	case wire.KindTransfer:
 		return s.handleTransfer(req.Transfer, peer)
+	case wire.KindDispatch:
+		return s.handleDispatch(req.Dispatch, peer)
 	case wire.KindPing:
 		return wire.PingFrame() // echo: liveness only
 	default:
@@ -580,6 +582,31 @@ func (s *Server) handleSimulate(req *wire.SimulateRequest, peer PeerCred) *wire.
 	}}
 }
 
+// handleDispatch answers the burst dispatch query: may a pending job start now,
+// or must it hold at priority 0? Read verb, visibility-scoped like simulate. It
+// resolves the job's rate exactly as the gate does (s.effectiveRate) and calls
+// the LOCK-FREE bd.MayDispatch — this is the tier-2 hot path the site_factor
+// plugin hits O(pending) per scheduling cycle, so it must not take the gate lock.
+func (s *Server) handleDispatch(req *wire.DispatchRequest, peer PeerCred) *wire.Frame {
+	if req == nil {
+		return dispatchReject("empty dispatch request")
+	}
+	bd, err := s.reg.Resolve(req.Account)
+	if err != nil {
+		return dispatchReject(err.Error())
+	}
+	if !s.canRead(req.Account, peer) {
+		return dispatchReject("not authorized to view account " + req.Account)
+	}
+	now := s.now()
+	rate, source := s.effectiveRate(req.Partition, req.TRES, bd, now)
+	v := bd.MayDispatch(rate, req.TimeLimit, now)
+	return &wire.Frame{MsgKind: wire.KindDispatch, DispatchResp: &wire.DispatchResponse{
+		OK: true, Account: req.Account, Rate: rate, RateSource: source,
+		Dispatch: v.Dispatch, Hold: v.Reason, Reserve: v.Reserve, Pot: v.Pot,
+	}}
+}
+
 // handleCreate creates a new account budget at runtime. Mutating verb → admin.
 func (s *Server) handleCreate(req *wire.CreateRequest, peer PeerCred) *wire.Frame {
 	if req == nil {
@@ -701,4 +728,8 @@ func simulateReject(reason string) *wire.Frame {
 
 func transferReject(reason string) *wire.Frame {
 	return &wire.Frame{MsgKind: wire.KindTransfer, TransferResp: &wire.TransferResponse{OK: false, Reason: reason}}
+}
+
+func dispatchReject(reason string) *wire.Frame {
+	return &wire.Frame{MsgKind: wire.KindDispatch, DispatchResp: &wire.DispatchResponse{OK: false, Reason: reason}}
 }

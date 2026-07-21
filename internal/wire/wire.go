@@ -60,6 +60,7 @@ const (
 	KindCreate    Kind = "create"
 	KindAttach    Kind = "attach"
 	KindTransfer  Kind = "transfer"
+	KindDispatch  Kind = "dispatch"
 )
 
 // SettleKind names how a job ended, routing to the matching kernel transition.
@@ -325,6 +326,31 @@ type TransferResponse struct {
 	ToBalance   int64  `json:"to_balance,omitempty"`
 }
 
+// DispatchRequest asks whether a pending job may start NOW given burst headroom,
+// or must hold at priority 0 (the site_factor plugin's per-cycle query, #14). It
+// is read-only and answered lock-free by the daemon.
+type DispatchRequest struct {
+	Account   string `json:"account"`
+	Partition string `json:"partition,omitempty"`
+	TimeLimit int64  `json:"time_limit"` // walltime seconds; required
+	TRES      TRES   `json:"tres,omitempty"`
+}
+
+// DispatchResponse is the burst dispatch verdict. Dispatch=false means the job
+// should hold (the plugin sets site factor 0); Hold carries the reason. Reserve
+// and Pot expose the burst numbers for diagnostics.
+type DispatchResponse struct {
+	OK         bool   `json:"ok"`
+	Reason     string `json:"reason,omitempty"` // resolve/transport error (not a hold)
+	Account    string `json:"account,omitempty"`
+	Rate       int64  `json:"rate,omitempty"`
+	RateSource string `json:"rate_source,omitempty"`
+	Dispatch   bool   `json:"dispatch"`          // may start now (true) or hold (false)
+	Hold       string `json:"hold,omitempty"`    // burst hold reason when !Dispatch
+	Reserve    int64  `json:"reserve,omitempty"` // burst tokens this job would reserve
+	Pot        int64  `json:"pot,omitempty"`     // projected burst pot
+}
+
 // LogRequest asks for the audit log (WAL render) of an account's budget.
 type LogRequest struct {
 	Account string `json:"account,omitempty"`
@@ -378,6 +404,7 @@ type Frame struct {
 	Create    *CreateRequest    `json:"create,omitempty"`
 	Attach    *AttachRequest    `json:"attach,omitempty"`
 	Transfer  *TransferRequest  `json:"transfer,omitempty"`
+	Dispatch  *DispatchRequest  `json:"dispatch,omitempty"`
 
 	// Responses (one populated per response frame).
 	GateResp     *GateResponse     `json:"gate_resp,omitempty"`
@@ -392,6 +419,7 @@ type Frame struct {
 	SimulateResp *SimulateResponse `json:"simulate_resp,omitempty"`
 	AttachResp   *AttachResponse   `json:"attach_resp,omitempty"`
 	TransferResp *TransferResponse `json:"transfer_resp,omitempty"`
+	DispatchResp *DispatchResponse `json:"dispatch_resp,omitempty"`
 }
 
 // Sentinel errors surfaced by decode. ErrVersion is distinguished so a caller
@@ -528,4 +556,9 @@ func AttachFrame(req *AttachRequest) *Frame { return &Frame{MsgKind: KindAttach,
 // TransferFrame wraps a TransferRequest in a request Frame.
 func TransferFrame(req *TransferRequest) *Frame {
 	return &Frame{MsgKind: KindTransfer, Transfer: req}
+}
+
+// DispatchFrame wraps a DispatchRequest in a request Frame.
+func DispatchFrame(req *DispatchRequest) *Frame {
+	return &Frame{MsgKind: KindDispatch, Dispatch: req}
 }
