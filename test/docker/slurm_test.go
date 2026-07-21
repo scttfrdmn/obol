@@ -303,3 +303,45 @@ func TestGatedTokenStamped(t *testing.T) {
 	}
 	waitJobGone(t, jobid)
 }
+
+// TestTopUpAsAdmin: root (an admin in the config) tops up lab_smith; the balance
+// and allocation grow and conservation holds. The daemon reads root's real uid
+// via SO_PEERCRED over the socket.
+func TestTopUpAsAdmin(t *testing.T) {
+	before := showBalance(t, "lab_smith")
+	out := dexec(t, `obol --socket /run/obol/obold.sock topup --account lab_smith --amount 25000`)
+	if !strings.Contains(out, "ok:") {
+		t.Fatalf("admin topup did not succeed: %q", out)
+	}
+	if after := showBalance(t, "lab_smith"); after != before+25000 {
+		t.Errorf("balance after topup = %d, want %d", after, before+25000)
+	}
+	if s := showAccount(t, "lab_smith"); !strings.Contains(s, "Conservation:  OK") {
+		t.Errorf("conservation not OK after topup:\n%s", s)
+	}
+}
+
+// TestTopUpAsNonAdminRejected: a non-admin user (alice) is rejected by peer-cred
+// even though she can reach the socket. Proves authz is on the kernel-verified
+// uid, not the socket alone.
+func TestTopUpAsNonAdminRejected(t *testing.T) {
+	before := showBalance(t, "lab_smith")
+	out, err := exec.Command("docker", "exec", container, "bash", "-lc",
+		`sudo -u alice obol --socket /run/obol/obold.sock topup --account lab_smith --amount 999`).CombinedOutput()
+	if err == nil {
+		t.Errorf("expected non-admin topup to be rejected, got success:\n%s", out)
+	}
+	if after := showBalance(t, "lab_smith"); after != before {
+		t.Errorf("balance changed on a rejected topup: %d -> %d", before, after)
+	}
+}
+
+// TestListAsAdmin: root lists all accounts.
+func TestListAsAdmin(t *testing.T) {
+	out := dexec(t, `obol --socket /run/obol/obold.sock list`)
+	for _, want := range []string{"lab_smith", "lab_jones", "ACCOUNT", "BALANCE"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("list output missing %q:\n%s", want, out)
+		}
+	}
+}

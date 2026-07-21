@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Docker tier validates topup + peer-cred authz on real Slurm (issue #59): with `admin_users:
+  ["root"]` configured, root tops up an account (balance/allocation grow, conservation holds), a
+  non-admin user who *can reach the socket* is rejected by `SO_PEERCRED`, and `obol list` shows
+  the accounts — proving authorization keys on the kernel-verified uid, not socket permissions.
 - `obol topup` / `obol list` + peer-credential authorization (issue #59): the daemon gains
   `TOPUP` (admin-only, adds money to a live account) and `LIST` (enumerate visible accounts) wire
   messages. **Management commands are now authorized by the connection's kernel-verified peer
