@@ -409,7 +409,7 @@ func (s *Server) handleLog(req *wire.LogRequest, peer PeerCred) *wire.Frame {
 		rows = append(rows, wire.LogEntry{
 			Kind: e.Kind, JobID: e.JobID, ArrayID: e.ArrayID, Idx: e.Idx, N: e.N,
 			Rate: e.Rate, W: e.W, Runtime: e.Runtime, Elapsed: e.Elapsed,
-			Amount: e.Amount, TS: e.TS, TE: e.TE, Now: e.Now,
+			Amount: e.Amount, TS: e.TS, TE: e.TE, Xfer: e.Xfer, Now: e.Now,
 		})
 	}
 	return &wire.Frame{MsgKind: wire.KindLog, LogResp: &wire.LogResponse{

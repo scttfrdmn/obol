@@ -25,9 +25,10 @@ type Command struct {
 	W       Seconds `json:"w,omitempty"`
 	Runtime Seconds `json:"r,omitempty"`
 	Elapsed Seconds `json:"e,omitempty"`
-	Amount  Units   `json:"amt,omitempty"` // top-up amount (KindTopUp)
+	Amount  Units   `json:"amt,omitempty"` // top-up / withdraw amount (KindTopUp/KindWithdraw)
 	TS      Seconds `json:"ts,omitempty"`  // window start (KindSetWindow)
 	TE      Seconds `json:"te,omitempty"`  // window end (KindSetWindow)
+	Xfer    string  `json:"x,omitempty"`   // transfer id tagging a topup/withdraw leg (obol transfer, #25)
 	Now     Seconds `json:"t,omitempty"`
 }
 
@@ -48,6 +49,7 @@ const (
 	KindInfraFailTask = "aif"
 	KindLapse         = "lap"
 	KindTopUp         = "top"
+	KindWithdraw      = "wd"
 	KindReprice       = "rep"
 	KindSetRate       = "srate"
 	KindSetWindow     = "swin"

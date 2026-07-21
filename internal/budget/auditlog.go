@@ -20,9 +20,10 @@ type LogEntry struct {
 	W       Seconds // funded walltime (submit)
 	Runtime Seconds // billed runtime (complete/*-task)
 	Elapsed Seconds // elapsed (cancel/infrafail)
-	Amount  Units   // top-up amount
+	Amount  Units   // top-up / withdraw amount
 	TS      Seconds // window start (set-window)
 	TE      Seconds // window end (set-window)
+	Xfer    string  // transfer id tagging a topup/withdraw leg (obol transfer)
 	Now     Seconds // logical clock at the transition
 }
 
@@ -57,6 +58,8 @@ func commandKindName(k string) string {
 		return "lapse"
 	case KindTopUp:
 		return "topup"
+	case KindWithdraw:
+		return "withdraw"
 	case KindReprice:
 		return "reprice"
 	case KindSetRate:
@@ -79,6 +82,25 @@ func (bd *Budget) Log() ([]LogEntry, error) {
 	return ReadLog(bd.dir)
 }
 
+// HasXfer reports whether the WAL at dir contains a committed command of the
+// given kind (KindTopUp or KindWithdraw) tagged with the transfer id xfer. It is
+// read-only over the append-only WAL, used by the daemon's transfer recovery to
+// decide which leg of an interrupted transfer already committed (obol transfer,
+// #25). A missing WAL (no records yet) reports false.
+func HasXfer(dir, kind, xfer string) (bool, error) {
+	found := false
+	_, err := replayWAL(filepath.Join(dir, "wal.log"), 0, func(c Command) error {
+		if c.Kind == kind && c.Xfer == xfer {
+			found = true
+		}
+		return nil
+	})
+	if err != nil {
+		return false, err
+	}
+	return found, nil
+}
+
 // ReadLog reads the full WAL at dir and returns its transitions in commit order.
 // It is read-only — it opens no live budget and mutates nothing — so it is safe
 // to call against a directory whose budget is also open in the daemon (the WAL
@@ -99,6 +121,7 @@ func ReadLog(dir string) ([]LogEntry, error) {
 			Amount:  c.Amount,
 			TS:      c.TS,
 			TE:      c.TE,
+			Xfer:    c.Xfer,
 			Now:     c.Now,
 		})
 		return nil

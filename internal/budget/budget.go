@@ -354,17 +354,62 @@ func (bd *Budget) Lapse() {
 // recovery, per the #8 decision that any balance mutation must be a logged
 // command, never snapshot-only.
 func (bd *Budget) TopUp(amount Units, now Seconds) error {
+	return bd.TopUpXfer(amount, "", now)
+}
+
+// TopUpXfer is TopUp tagging the logged command with a transfer id (obol
+// transfer, #25). A plain admin top-up passes xfer=="". The id lets recovery
+// identify a transfer's deposit leg across two WALs so each leg applies
+// exactly once; it does not affect the money math.
+func (bd *Budget) TopUpXfer(amount Units, xfer string, now Seconds) error {
 	bd.mu.Lock()
 	defer bd.mu.Unlock()
 	defer bd.publishLocked()
 	if amount <= 0 {
 		return ErrBadState // add-only
 	}
-	if err := bd.logCmd(Command{Kind: KindTopUp, Amount: amount, Now: now}); err != nil {
+	if err := bd.logCmd(Command{Kind: KindTopUp, Amount: amount, Xfer: xfer, Now: now}); err != nil {
 		return err
 	}
 	bd.B += amount
 	bd.B0 += amount
+	return nil
+}
+
+// Withdraw removes money from the budget: the money-symmetric inverse of TopUp.
+// It lowers BOTH the balance B and the original allocation B0 by amount, so
+// conservation (B0 == B + Reserved + Consumed + WriteOff) holds exactly — the
+// removed money leaves B, and B0 (the anchor) shrinks to match.
+//
+// Only AVAILABLE balance may be withdrawn (amount <= B): reserved, consumed, and
+// written-off money is committed to live/settled work and must not be moved out
+// from under it. It is remove-only (amount must be positive) and works regardless
+// of lifecycle status, since it is an admin action — sweeping a lapsed budget's
+// leftover before it is reallocated is exactly the point (obol transfer, #25).
+//
+// Withdraw is a logged transition (issue #8): the amount is recorded in the WAL
+// and replayed on recovery.
+func (bd *Budget) Withdraw(amount Units, now Seconds) error {
+	return bd.WithdrawXfer(amount, "", now)
+}
+
+// WithdrawXfer is Withdraw tagging the logged command with a transfer id (obol
+// transfer, #25) — the withdrawal leg's counterpart to TopUpXfer.
+func (bd *Budget) WithdrawXfer(amount Units, xfer string, now Seconds) error {
+	bd.mu.Lock()
+	defer bd.mu.Unlock()
+	defer bd.publishLocked()
+	if amount <= 0 {
+		return ErrBadState // remove-only
+	}
+	if amount > bd.B {
+		return ErrInsufficient // only available balance moves, never reserved/consumed
+	}
+	if err := bd.logCmd(Command{Kind: KindWithdraw, Amount: amount, Xfer: xfer, Now: now}); err != nil {
+		return err
+	}
+	bd.B -= amount
+	bd.B0 -= amount
 	return nil
 }
 

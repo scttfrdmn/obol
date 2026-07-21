@@ -323,6 +323,7 @@ type LogEntry struct {
 	Amount  int64  `json:"amount,omitempty"`
 	TS      int64  `json:"ts,omitempty"`
 	TE      int64  `json:"te,omitempty"`
+	Xfer    string `json:"xfer,omitempty"`
 	Now     int64  `json:"now,omitempty"`
 }
 

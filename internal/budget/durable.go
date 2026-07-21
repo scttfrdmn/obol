@@ -128,7 +128,9 @@ func (bd *Budget) applyCommand(c Command) error {
 		bd.Lapse()
 		return nil
 	case KindTopUp:
-		return bd.TopUp(c.Amount, c.Now)
+		return bd.TopUpXfer(c.Amount, c.Xfer, c.Now)
+	case KindWithdraw:
+		return bd.WithdrawXfer(c.Amount, c.Xfer, c.Now)
 	case KindReprice:
 		return bd.Reprice(c.JobID, c.C, c.Now)
 	case KindSetRate:
