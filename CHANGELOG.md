@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Budget `TopUp(amount, now)` kernel transition (issue #59): adds money to a live budget by
+  raising **both** the balance `B` and the allocation anchor `B0`, so conservation holds exactly.
+  Add-only (positive amount), works regardless of lifecycle status (an admin action, not a
+  submit), and is a **logged** transition — the amount rides the WAL and replays on recovery (the
+  first money-*increasing* command, per the #8 immutable-config decision). Covered by
+  conservation, fund-new-work, lapsed, reject-non-positive, and recovery tests under `-race`.
+
 ## [0.3.0] - 2026-07-21
 
 Per-account budgets. obold moves from a single pot to a registry of independent
