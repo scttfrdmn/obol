@@ -129,6 +129,8 @@ func (bd *Budget) applyCommand(c Command) error {
 		return nil
 	case KindTopUp:
 		return bd.TopUp(c.Amount, c.Now)
+	case KindReprice:
+		return bd.Reprice(c.JobID, c.C, c.Now)
 	default:
 		return fmt.Errorf("unknown command kind %q", c.Kind)
 	}

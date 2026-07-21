@@ -368,6 +368,45 @@ func (bd *Budget) TopUp(amount Units, now Seconds) error {
 	return nil
 }
 
+// Reprice lowers a live 1:1 escrow's cost rate before it starts, refunding the
+// over-reservation. This is the node-type cost true-up (issue #65): the gate
+// escrows the worst-case node rate at submit (node placement unknown), and once
+// Slurm binds the real node — carried in via BIND, before Start — the daemon
+// reprices to the actual node's (cheaper) rate.
+//
+// It may only LOWER the rate: worst-case escrow guarantees newRate <= e.C, and a
+// raise would risk overdrawing a budget that only reserved the worst case — so a
+// raise is rejected as a bug/misconfig, preserving the no-overdraft invariant.
+// It must run before Start (the rate is committed into rLive/burst at dispatch);
+// repricing a started escrow is rejected.
+//
+// Conservation is preserved exactly: the freed delta moves Reserved -> B, and B0
+// is unchanged. Logged, so the repriced rate replays on recovery.
+func (bd *Budget) Reprice(jobID string, newRate Seconds, now Seconds) error {
+	bd.mu.Lock()
+	defer bd.mu.Unlock()
+	defer bd.publishLocked()
+	e, ok := bd.escrows[jobID]
+	if !ok {
+		return ErrNoSuchJob
+	}
+	if e.Started {
+		return ErrBadState // rate already committed at dispatch
+	}
+	if newRate <= 0 || newRate > e.C {
+		return ErrBadState // reprice may only lower the rate (and stay positive)
+	}
+	delta := (e.C - newRate) * e.W // >= 0: the amount to refund
+	if err := bd.logCmd(Command{Kind: KindReprice, JobID: jobID, C: newRate, Now: now}); err != nil {
+		return err
+	}
+	e.C = newRate
+	e.Reserved -= delta
+	bd.ReservedTotal -= delta
+	bd.B += delta
+	return nil
+}
+
 // ---- read-only inspectors (take the lock to read a consistent snapshot) ----
 
 // Balance returns the current available balance B.
