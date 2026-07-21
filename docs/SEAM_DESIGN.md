@@ -349,7 +349,10 @@ conservation and concurrency properties are already proven.
    replay path (never snapshot-only), to preserve the pure-`(state, command, now)` invariant.
 5. **Hierarchy / multi-budget resolution** — §9 describes it; the kernel today proves only the
    single-budget core. Real model scope still to re-expand.
-6. **Tier-2 read path** — the copy-on-write snapshot for lock-cheap priority reads is designed but
-   the kernel currently serves all reads under the one write mutex.
+6. **Tier-2 read path** — *resolved (issue #7).* Every mutation publishes an immutable
+   `ReadView{B, burstPot, rLive}` under the lock it already holds; `ReadSnapshot()` loads it
+   lock-free via an atomic pointer, so the site_factor priority/burst reads (O(pending) per cycle)
+   never take — and never contend — the gate write mutex. The published triple is internally
+   consistent (one locked moment), which three independent atomics could not guarantee.
 
 Items 1–3 gate a first Gen 1 deployment. Items 4–6 are real but can follow a working money-gate MVP.

@@ -3,6 +3,7 @@ package budget
 import (
 	"errors"
 	"sync"
+	"sync/atomic"
 )
 
 // ---------------------------------------------------------------------------
@@ -94,18 +95,25 @@ type Budget struct {
 	wal       *WAL
 	dir       string
 	replaying bool
+
+	// Tier-2 lock-cheap read path (see readview.go): every mutation publishes an
+	// immutable snapshot of (B, burstPot, rLive) here under bd.mu; ReadSnapshot
+	// loads it lock-free, so priority/burst reads never contend the gate lock.
+	readView atomic.Pointer[ReadView]
 }
 
 // New constructs an in-memory (non-durable) budget with cost rate c, initial
 // allocation b0, and time window [ts, te). Burst is disabled by default.
 func New(c, b0, ts, te Units) *Budget {
-	return &Budget{
+	bd := &Budget{
 		C: c, B: b0, B0: b0, TS: ts, TE: te,
 		escrows:   make(map[string]*Escrow),
 		lastTouch: ts, // accrual measured from window start
 		status:    Active,
 		K:         0, // infinite by default: dumping allowed
 	}
+	bd.publishLocked() // seed the tier-2 read view before any reader can load it
+	return bd
 }
 
 // rateOK evaluates the optional burst ceiling. now is a logical clock.
@@ -129,6 +137,7 @@ func (bd *Budget) rateOK(cost Units, now Seconds) bool {
 func (bd *Budget) Submit(jobID string, w Seconds, now Seconds) error {
 	bd.mu.Lock()
 	defer bd.mu.Unlock()
+	defer bd.publishLocked() // refresh tier-2 read view before releasing the lock
 
 	if bd.status != Active {
 		return ErrLapsed
@@ -163,6 +172,7 @@ func (bd *Budget) Submit(jobID string, w Seconds, now Seconds) error {
 func (bd *Budget) Start(jobID string, now Seconds) error {
 	bd.mu.Lock()
 	defer bd.mu.Unlock()
+	defer bd.publishLocked()
 	e, ok := bd.escrows[jobID]
 	if !ok {
 		return ErrNoSuchJob
@@ -245,6 +255,7 @@ func (bd *Budget) settle(jobID string, runtime Seconds, writeOff bool, now Secon
 	}
 
 	delete(bd.escrows, jobID)
+	bd.publishLocked() // shared settle core: refreshes the tier-2 view for all settle variants
 	return nil
 }
 
