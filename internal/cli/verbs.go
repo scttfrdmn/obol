@@ -16,10 +16,11 @@ func cmdShow(args []string, out, errOut io.Writer) int {
 	fs := flag.NewFlagSet("show", flag.ContinueOnError)
 	fs.SetOutput(errOut)
 	socket := socketFlag(fs)
+	account := fs.String("account", "", "account to show (omit if only one is configured)")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
-	resp, err := roundTrip(*socket, wire.StatusFrame())
+	resp, err := roundTrip(*socket, wire.StatusFrame(*account))
 	if err != nil {
 		return fail(errOut, err)
 	}
@@ -27,6 +28,10 @@ func cmdShow(args []string, out, errOut io.Writer) int {
 	if s == nil {
 		return fail(errOut, fmt.Errorf("empty status response"))
 	}
+	if !s.OK {
+		return fail(errOut, fmt.Errorf("%s", s.Reason))
+	}
+	pf(out, "Account:       %s\n", s.Account)
 	pf(out, "Balance:       %d / %d\n", s.B, s.B0)
 	pf(out, "Reserved:      %d\n", s.Reserved)
 	pf(out, "Consumed:      %d\n", s.Consumed)

@@ -275,9 +275,15 @@ Notes:
   - exactly one budget resolves → use it;
   - more than one resolves → reject asking the user to specify (`--comment` / a budget field);
   - none resolves → reject (no funded path), even if the job would otherwise schedule.
-- Hierarchy auto-resolves to the most specific account and rolls up (child spend debits ancestors);
-  explicit disambiguation is reserved for unrelated/sibling budgets. (Hierarchy rollup is deferred
-  model scope — the kernel today proves the single-budget core.)
+**Implemented (issue #18) — flat per-account model.** obold holds a registry of independent
+per-account budgets (`obold -config`), one WAL+snapshot dir each; the kernel is unchanged and each
+account conserves on its own. Resolution is an **exact account-name match** — a sub-account with no
+entry does not roll up, it fails to resolve → reject. There is **no account-tree chain-debit**; the
+originally-planned rollup (#17) was superseded by this simpler model (spend spanning multiple
+budgets is a separate future feature, #54). Access defaults to **trusting Slurm** (membership is
+already enforced by slurmdbd); an account may optionally set an `allow_users`/`allow_groups`
+list, in which case obol additionally resolves the submitter's uid→user/groups and checks it
+(only then is the lookup incurred, keeping the hot path free of it by default).
 
 ---
 

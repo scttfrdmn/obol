@@ -31,10 +31,11 @@ func TestRoundTrip(t *testing.T) {
 		{"settle-complete", SettleFrame(&SettleRequest{JobID: "4711", Kind: SettleComplete, Runtime: 1800})},
 		{"settle-infrafail", SettleFrame(&SettleRequest{Token: "budget:xyz", Kind: SettleInfraFail, Elapsed: 900})},
 		{"settle-resp", &Frame{MsgKind: KindSettle, SettleResp: &SettleResponse{OK: true}}},
-		{"status", StatusFrame()},
+		{"status", StatusFrame("lab_smith")},
 		{"status-resp", &Frame{MsgKind: KindStatus, StatusResp: &StatusResponse{
 			C: 2, B0: 1000, B: 800, Reserved: 200, TS: 0, TE: 1000, LiveEscrows: 1,
 			ConservationOK: true, ConservationSum: 1000, TimeToEmpty: 400,
+			Account: "lab_smith", OK: true,
 		}}},
 		{"ping", PingFrame()},
 	}

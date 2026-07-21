@@ -126,10 +126,12 @@ type SettleResponse struct {
 	Reason string `json:"reason,omitempty"`
 }
 
-// StatusRequest asks the daemon for a snapshot of the budget. It carries no
-// fields today (single-budget MVP); a budget selector is added with multi-budget
-// resolution (#18).
-type StatusRequest struct{}
+// StatusRequest asks the daemon for a snapshot of a budget. Account selects
+// which account's budget (multi-account, #18); empty means the sole account when
+// only one is configured, else the daemon replies asking which.
+type StatusRequest struct {
+	Account string `json:"account,omitempty"`
+}
 
 // StatusResponse is a point-in-time snapshot for the `obol show` verb. It mirrors
 // budget.Status; the daemon fills it from budget.Budget.Status(now).
@@ -154,6 +156,10 @@ type StatusResponse struct {
 	ConservationOK  bool  `json:"conservation_ok"`
 	ConservationSum int64 `json:"conservation_sum"`
 	TimeToEmpty     int64 `json:"time_to_empty"` // seconds; -1 if C<=0
+
+	Account string `json:"account,omitempty"` // which account this snapshot is for
+	OK      bool   `json:"ok"`                // false + Reason on a status error
+	Reason  string `json:"reason,omitempty"`
 }
 
 // Frame is the on-wire envelope. Exactly one of the typed request/response
@@ -258,4 +264,6 @@ func SettleFrame(req *SettleRequest) *Frame { return &Frame{MsgKind: KindSettle,
 func PingFrame() *Frame { return &Frame{MsgKind: KindPing} }
 
 // StatusFrame wraps a StatusRequest in a request Frame.
-func StatusFrame() *Frame { return &Frame{MsgKind: KindStatus, Status: &StatusRequest{}} }
+func StatusFrame(account string) *Frame {
+	return &Frame{MsgKind: KindStatus, Status: &StatusRequest{Account: account}}
+}
