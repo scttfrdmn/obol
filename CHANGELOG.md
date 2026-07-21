@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `obol resolve` — dry-run the gate decision (issue #24): given `--account [--partition]
+  [--time-limit] [--uid]`, reports which budget resolves, the effective rate and its source
+  (node-type worst-case / TRES / flat), current balance, the cost the job would escrow, the access
+  verdict, and whether the gate would admit — **escrowing nothing**. A diagnostic for "why did/
+  didn't this job match a budget?" Read-only, visibility-scoped by peer credentials; exit 3 when
+  it would be rejected (mirrors `gate`).
 - `obol set-rate` / `obol set-window` — live budget config mutation (issue #20): admins can change
   an account's flat cost rate and time window without a restart. These are the first **logged
   config transitions**, satisfying the issue #8 design: `SetRate`/`SetWindow` are WAL commands

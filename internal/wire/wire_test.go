@@ -44,6 +44,7 @@ func TestRoundTrip(t *testing.T) {
 		{"set-rate", SetRateFrame("lab_smith", 5)},
 		{"set-window", SetWindowFrame("lab_smith", 100, 200)},
 		{"ack", &Frame{MsgKind: KindSetRate, AckResp: &AckResponse{OK: true}}},
+		{"resolve", ResolveFrame(&ResolveRequest{Account: "lab", Partition: "priced", TimeLimit: 100})},
 		{"ping", PingFrame()},
 	}
 	for _, tc := range cases {

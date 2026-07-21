@@ -55,6 +55,7 @@ const (
 	KindLog       Kind = "log"
 	KindSetRate   Kind = "set_rate"
 	KindSetWindow Kind = "set_window"
+	KindResolve   Kind = "resolve"
 )
 
 // SettleKind names how a job ended, routing to the matching kernel transition.
@@ -224,6 +225,32 @@ type AckResponse struct {
 	Reason string `json:"reason,omitempty"`
 }
 
+// ResolveRequest asks the daemon to explain what the gate would do for a
+// submission, without escrowing — a dry run for diagnosing budget matching.
+type ResolveRequest struct {
+	Account   string `json:"account"`
+	Partition string `json:"partition,omitempty"`
+	UID       uint32 `json:"uid,omitempty"`
+	TimeLimit int64  `json:"time_limit,omitempty"` // optional: if >0, also show the cost this job would escrow
+	TRES      TRES   `json:"tres,omitempty"`
+}
+
+// ResolveResponse explains the resolution: which budget matched, the effective
+// rate and where it came from, the access verdict, and the resulting decision.
+type ResolveResponse struct {
+	OK         bool   `json:"ok"`
+	Reason     string `json:"reason,omitempty"` // set when the resolve itself errored
+	Account    string `json:"account,omitempty"`
+	Resolved   bool   `json:"resolved"`              // did (account) map to a budget?
+	Rate       int64  `json:"rate,omitempty"`        // effective per-second rate the gate would use
+	RateSource string `json:"rate_source,omitempty"` // "node-type worst-case" | "tres" | "flat"
+	Balance    int64  `json:"balance,omitempty"`     // current balance of the resolved budget
+	Cost       int64  `json:"cost,omitempty"`        // rate*time_limit, if time_limit given
+	Authorized bool   `json:"authorized"`            // would the submitter pass the access check?
+	Admits     bool   `json:"admits"`                // would the gate admit (resolved && authorized && funded && in-window)?
+	Decision   string `json:"decision,omitempty"`    // human summary of why
+}
+
 // LogRequest asks for the audit log (WAL render) of an account's budget.
 type LogRequest struct {
 	Account string `json:"account,omitempty"`
@@ -271,16 +298,18 @@ type Frame struct {
 	Log       *LogRequest       `json:"log,omitempty"`
 	SetRate   *SetRateRequest   `json:"set_rate,omitempty"`
 	SetWindow *SetWindowRequest `json:"set_window,omitempty"`
+	Resolve   *ResolveRequest   `json:"resolve,omitempty"`
 
 	// Responses (one populated per response frame).
-	GateResp   *GateResponse   `json:"gate_resp,omitempty"`
-	BindResp   *BindResponse   `json:"bind_resp,omitempty"`
-	SettleResp *SettleResponse `json:"settle_resp,omitempty"`
-	StatusResp *StatusResponse `json:"status_resp,omitempty"`
-	TopUpResp  *TopUpResponse  `json:"topup_resp,omitempty"`
-	ListResp   *ListResponse   `json:"list_resp,omitempty"`
-	LogResp    *LogResponse    `json:"log_resp,omitempty"`
-	AckResp    *AckResponse    `json:"ack_resp,omitempty"`
+	GateResp    *GateResponse    `json:"gate_resp,omitempty"`
+	BindResp    *BindResponse    `json:"bind_resp,omitempty"`
+	SettleResp  *SettleResponse  `json:"settle_resp,omitempty"`
+	StatusResp  *StatusResponse  `json:"status_resp,omitempty"`
+	TopUpResp   *TopUpResponse   `json:"topup_resp,omitempty"`
+	ListResp    *ListResponse    `json:"list_resp,omitempty"`
+	LogResp     *LogResponse     `json:"log_resp,omitempty"`
+	AckResp     *AckResponse     `json:"ack_resp,omitempty"`
+	ResolveResp *ResolveResponse `json:"resolve_resp,omitempty"`
 }
 
 // Sentinel errors surfaced by decode. ErrVersion is distinguished so a caller
@@ -396,4 +425,9 @@ func SetRateFrame(account string, rate int64) *Frame {
 // SetWindowFrame wraps a SetWindowRequest in a request Frame.
 func SetWindowFrame(account string, ts, te int64) *Frame {
 	return &Frame{MsgKind: KindSetWindow, SetWindow: &SetWindowRequest{Account: account, TS: ts, TE: te}}
+}
+
+// ResolveFrame wraps a ResolveRequest in a request Frame.
+func ResolveFrame(req *ResolveRequest) *Frame {
+	return &Frame{MsgKind: KindResolve, Resolve: req}
 }
