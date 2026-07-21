@@ -1,0 +1,8 @@
+{
+  "accounts": [
+    {"name": "lab", "balance": 100000, "rate": 1, "window": "720h"},
+    {"name": "lab_smith", "balance": 100000, "rate": 1, "window": "720h"},
+    {"name": "lab_jones", "balance": 50000, "rate": 1, "window": "720h",
+     "allow_users": ["carol", "dave"]}
+  ]
+}

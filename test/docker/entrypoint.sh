@@ -80,10 +80,17 @@ sacctmgr -i add user dave  Account=lab_jones DefaultAccount=lab_jones >/dev/null
 sacctmgr -i add user root  Account=lab DefaultAccount=lab >/dev/null 2>&1 || true
 
 # --- obold (must be up before slurmctld so the first gate can reach it) ---
+# Multi-account mode (-config) when a config is present, else single-budget.
 log "starting obold"
-/usr/local/bin/obold -socket /run/obol/obold.sock -state-dir /var/lib/obol \
-  -create -balance "${OBOL_BALANCE:-100000}" -rate "${OBOL_RATE:-1}" -sync=false \
-  >/var/log/obold.log 2>&1 &
+if [ -f /etc/obol/obold-config.json ]; then
+  /usr/local/bin/obold -socket /run/obol/obold.sock -state-dir /var/lib/obol \
+    -config /etc/obol/obold-config.json -sync=false \
+    >/var/log/obold.log 2>&1 &
+else
+  /usr/local/bin/obold -socket /run/obol/obold.sock -state-dir /var/lib/obol \
+    -create -balance "${OBOL_BALANCE:-100000}" -rate "${OBOL_RATE:-1}" -sync=false \
+    >/var/log/obold.log 2>&1 &
+fi
 for i in $(seq 1 20); do
   [ -S /run/obol/obold.sock ] && break
   sleep 0.25
