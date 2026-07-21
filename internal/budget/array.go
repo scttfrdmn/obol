@@ -47,6 +47,7 @@ func (bd *Budget) ensureArrays() {
 func (bd *Budget) SubmitArray(arrayID string, n int, w Seconds, now Seconds) error {
 	bd.mu.Lock()
 	defer bd.mu.Unlock()
+	defer bd.publishLocked() // refresh tier-2 read view
 	bd.ensureArrays()
 
 	if bd.status != Active {
@@ -91,6 +92,7 @@ func (bd *Budget) SubmitArray(arrayID string, n int, w Seconds, now Seconds) err
 func (bd *Budget) StartTask(arrayID string, idx int, now Seconds) error {
 	bd.mu.Lock()
 	defer bd.mu.Unlock()
+	defer bd.publishLocked() // refresh tier-2 read view
 	ae, ok := bd.arrays[arrayID]
 	if !ok {
 		return ErrNoSuchJob
@@ -200,6 +202,7 @@ func (bd *Budget) settleTask(arrayID string, idx int, runtime Seconds, writeOff 
 	if ae.Remaining == 0 {
 		delete(bd.arrays, arrayID)
 	}
+	bd.publishLocked() // shared task-settle core: refreshes the tier-2 view
 	return nil
 }
 

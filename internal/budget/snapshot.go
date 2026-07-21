@@ -111,6 +111,7 @@ func budgetFromSnapshot(s snapshot) *Budget {
 		}
 		bd.arrays[as.ArrayID] = ae
 	}
+	bd.publishLocked() // seed the tier-2 read view for a recovered budget
 	return bd
 }
 

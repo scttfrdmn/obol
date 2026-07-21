@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Tier-2 lock-cheap read path (issue #7): every mutation publishes an immutable
+  `ReadView{B, burstPot, rLive}` under the lock it already holds; `ReadSnapshot()` loads it
+  lock-free via an atomic pointer, so the frequent priority/burst reads never contend the gate
+  write mutex. The triple is internally consistent (captured in one locked moment). Covered by a
+  concurrent readers-vs-writers test under `-race`.
 - WAL group commit (issue #6): `Append` writes the record to the page cache and returns; a
   background committer batches `fdatasync`s off the caller's path, so the fsync no longer serializes
   behind each append (the GATE ack returns after the in-memory escrow; durability lands a hair
