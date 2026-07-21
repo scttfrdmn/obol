@@ -40,6 +40,7 @@ func TestRoundTrip(t *testing.T) {
 		{"topup", TopUpFrame("lab_smith", 5000)},
 		{"topup-resp", &Frame{MsgKind: KindTopUp, TopUpResp: &TopUpResponse{OK: true, NewBalance: 15000, NewB0: 15000}}},
 		{"list", ListFrame()},
+		{"log", LogFrame("lab_smith")},
 		{"ping", PingFrame()},
 	}
 	for _, tc := range cases {

@@ -130,6 +130,8 @@ func (s *Server) dispatch(req *wire.Frame, peer PeerCred) *wire.Frame {
 		return s.handleTopUp(req.TopUp, peer)
 	case wire.KindList:
 		return s.handleList(peer)
+	case wire.KindLog:
+		return s.handleLog(req.Log, peer)
 	case wire.KindPing:
 		return wire.PingFrame() // echo: liveness only
 	default:
@@ -338,6 +340,45 @@ func (s *Server) handleList(peer PeerCred) *wire.Frame {
 	return &wire.Frame{MsgKind: wire.KindList, ListResp: &wire.ListResponse{OK: true, Accounts: rows}}
 }
 
+// handleLog renders an account's WAL as a time-ordered audit log. Read verb:
+// visibility-scoped like show/list. It reads the WAL file directly (read-only,
+// append-only file) rather than the live budget, so it never contends the gate.
+func (s *Server) handleLog(req *wire.LogRequest, peer PeerCred) *wire.Frame {
+	account := ""
+	if req != nil {
+		account = req.Account
+	}
+	if account == "" {
+		if name, _, ok := s.reg.Single(); ok {
+			account = name
+		} else {
+			return logReject("multiple accounts configured; specify --account")
+		}
+	}
+	bd, err := s.reg.Resolve(account)
+	if err != nil {
+		return logReject(err.Error())
+	}
+	if !s.canRead(account, peer) {
+		return logReject("not authorized to view account " + account)
+	}
+	entries, err := bd.Log()
+	if err != nil {
+		return logReject(err.Error())
+	}
+	rows := make([]wire.LogEntry, 0, len(entries))
+	for _, e := range entries {
+		rows = append(rows, wire.LogEntry{
+			Kind: e.Kind, JobID: e.JobID, ArrayID: e.ArrayID, Idx: e.Idx, N: e.N,
+			Rate: e.Rate, W: e.W, Runtime: e.Runtime, Elapsed: e.Elapsed,
+			Amount: e.Amount, Now: e.Now,
+		})
+	}
+	return &wire.Frame{MsgKind: wire.KindLog, LogResp: &wire.LogResponse{
+		OK: true, Account: account, Entries: rows,
+	}}
+}
+
 // mintToken returns a unique, unforgeable correlation token. The "budget:" prefix
 // matches what the shim stamps into admin_comment (docs/SEAM_DESIGN.md §4).
 func mintToken() (string, error) {
@@ -362,4 +403,8 @@ func statusReject(reason string) *wire.Frame {
 
 func topUpReject(reason string) *wire.Frame {
 	return &wire.Frame{MsgKind: wire.KindTopUp, TopUpResp: &wire.TopUpResponse{OK: false, Reason: reason}}
+}
+
+func logReject(reason string) *wire.Frame {
+	return &wire.Frame{MsgKind: wire.KindLog, LogResp: &wire.LogResponse{OK: false, Reason: reason}}
 }

@@ -214,6 +214,71 @@ func cmdList(args []string, out, errOut io.Writer) int {
 	return 0
 }
 
+// cmdLog renders an account's transaction/audit log (the WAL), time-ordered.
+func cmdLog(args []string, out, errOut io.Writer) int {
+	fs := flag.NewFlagSet("log", flag.ContinueOnError)
+	fs.SetOutput(errOut)
+	socket := socketFlag(fs)
+	account := fs.String("account", "", "account to render (omit if only one is configured)")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	resp, err := roundTrip(*socket, wire.LogFrame(*account))
+	if err != nil {
+		return fail(errOut, err)
+	}
+	if resp.LogResp == nil || !resp.LogResp.OK {
+		r := "empty response"
+		if resp.LogResp != nil {
+			r = resp.LogResp.Reason
+		}
+		return fail(errOut, fmt.Errorf("log failed: %s", r))
+	}
+	pf(out, "# transaction log for account %s (%d entries)\n", resp.LogResp.Account, len(resp.LogResp.Entries))
+	for _, e := range resp.LogResp.Entries {
+		pf(out, "t=%-8d %-22s %s\n", e.Now, e.Kind, logDetail(e))
+	}
+	return 0
+}
+
+// logDetail renders the fields relevant to a log entry's kind.
+func logDetail(e wire.LogEntry) string {
+	switch {
+	case e.Kind == "topup":
+		return fmt.Sprintf("amount=%d", e.Amount)
+	case e.ArrayID != "":
+		d := "array=" + e.ArrayID
+		if e.N > 0 {
+			d += fmt.Sprintf(" n=%d", e.N)
+		}
+		if e.Idx != 0 || e.Kind == "start-task" {
+			d += fmt.Sprintf(" idx=%d", e.Idx)
+		}
+		return d + logCostDetail(e)
+	case e.JobID != "":
+		return "job=" + e.JobID + logCostDetail(e)
+	default:
+		return ""
+	}
+}
+
+func logCostDetail(e wire.LogEntry) string {
+	d := ""
+	if e.Rate != 0 {
+		d += fmt.Sprintf(" rate=%d", e.Rate)
+	}
+	if e.W != 0 {
+		d += fmt.Sprintf(" w=%d", e.W)
+	}
+	if e.Runtime != 0 {
+		d += fmt.Sprintf(" runtime=%d", e.Runtime)
+	}
+	if e.Elapsed != 0 {
+		d += fmt.Sprintf(" elapsed=%d", e.Elapsed)
+	}
+	return d
+}
+
 // --- small formatting/parsing helpers ---
 
 func parseSettleKind(s string) (wire.SettleKind, error) {
