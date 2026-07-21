@@ -127,6 +127,8 @@ func (bd *Budget) applyCommand(c Command) error {
 	case KindLapse:
 		bd.Lapse()
 		return nil
+	case KindTopUp:
+		return bd.TopUp(c.Amount, c.Now)
 	default:
 		return fmt.Errorf("unknown command kind %q", c.Kind)
 	}

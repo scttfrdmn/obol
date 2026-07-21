@@ -343,6 +343,31 @@ func (bd *Budget) Lapse() {
 	bd.status = Lapsed
 }
 
+// TopUp adds money to the budget: it raises BOTH the balance B and the original
+// allocation B0 by amount, so conservation (B0 == B + Reserved + Consumed +
+// WriteOff) holds exactly — the added money lands in B, and B0 (the anchor) grows
+// to match. It is add-only (amount must be positive; withdraw/move are separate)
+// and works regardless of lifecycle status, since it is an admin action, not a
+// submit — refilling a lapsed budget before reopening is valid.
+//
+// TopUp is a logged transition: the amount is recorded in the WAL and replayed on
+// recovery, per the #8 decision that any balance mutation must be a logged
+// command, never snapshot-only.
+func (bd *Budget) TopUp(amount Units, now Seconds) error {
+	bd.mu.Lock()
+	defer bd.mu.Unlock()
+	defer bd.publishLocked()
+	if amount <= 0 {
+		return ErrBadState // add-only
+	}
+	if err := bd.logCmd(Command{Kind: KindTopUp, Amount: amount, Now: now}); err != nil {
+		return err
+	}
+	bd.B += amount
+	bd.B0 += amount
+	return nil
+}
+
 // ---- read-only inspectors (take the lock to read a consistent snapshot) ----
 
 // Balance returns the current available balance B.
