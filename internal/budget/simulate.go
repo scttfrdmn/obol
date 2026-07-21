@@ -50,36 +50,29 @@ func (bd *Budget) Simulate(c, w Seconds, now Seconds) Simulation {
 
 // burstHeadroomOK reports whether a job at rate c for walltime w could reserve
 // the burst tokens the dispatch gate (Start) would demand, WITHOUT mutating the
-// bucket. It projects the accrual to `now` (mirroring accrue's arithmetic) and
-// compares the required reservation against the projected pot and the draw cap.
+// bucket. Caller holds bd.mu. It routes through the SAME pure helper as the
+// lock-free MayDispatch (dispatch.go), so the simulate/gate answer and the
+// site_factor dispatch answer can never drift. Status is not re-checked here
+// (Simulate already gates status/window/solvency before calling this); the
+// helper's status branch is a no-op for an Active budget.
 func (bd *Budget) burstHeadroomOK(c, w Seconds, now Seconds) bool {
-	resv := bd.burstReserveForRate(c, w)
-	if resv <= 0 {
-		return true // no excess over r0 => no tokens needed
-	}
-	if bd.BurstDrawCap > 0 && resv > bd.BurstDrawCap {
-		return false
-	}
-	return resv <= bd.projectedBurstPot(now)
+	return burstDispatchVerdict(bd.projection(), c, w, now).Dispatch
 }
 
-// projectedBurstPot returns what burstPot would be after accruing idle pace up to
-// `now`, without committing (a pure copy of accrue's math). Used by the read-only
-// simulation so it never changes the real bucket.
-func (bd *Budget) projectedBurstPot(now Seconds) Units {
-	pot := bd.burstPot
-	dt := now - bd.lastTouch
-	if dt <= 0 {
-		return pot
+// projection captures the burst-dispatch inputs from the live budget. Caller
+// holds bd.mu. It is the locked counterpart to loading a ReadView — both feed
+// the shared burstDispatchVerdict helper.
+func (bd *Budget) projection() burstProjection {
+	return burstProjection{
+		burstEnabled:    bd.BurstEnabled,
+		burstPot:        bd.burstPot,
+		rLive:           bd.rLive,
+		fracAcc:         bd.fracAcc,
+		lastTouch:       bd.lastTouch,
+		b0:              bd.B0,
+		ts:              bd.TS,
+		te:              bd.TE,
+		burstCeilingPct: bd.BurstCeilingPct,
+		burstDrawCap:    bd.BurstDrawCap,
 	}
-	T := bd.window()
-	unusedNum := bd.B0 - bd.rLive*T // (r0 - rLive) * T
-	if unusedNum > 0 {
-		acc := bd.fracAcc + unusedNum*dt
-		pot += acc / T
-		if ceil := bd.burstCeiling(); pot > ceil {
-			pot = ceil
-		}
-	}
-	return pot
 }

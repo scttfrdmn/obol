@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Kernel `Budget.MayDispatch` — a lock-free burst dispatch query answering "would
+  this job get the burst headroom to start now, or must it hold?" for the
+  `site_factor` priority path (#14). It reads the tier-2 `ReadView` (extended to
+  carry the burst-projection inputs) and routes through the same pure verdict
+  helper as the locked gate, so the lock-free answer can never drift from what
+  `Start` actually does (asserted by a `MayDispatch`-vs-`Start` agreement matrix).
+
 ## [0.8.0] - 2026-07-21
 
 Money movement between budgets, and the kernel primitive under it. This closes
