@@ -16,7 +16,7 @@ func singleBudgetCfg(dir string, create bool, rate, b0 int64, window time.Durati
 // and rejects as lapsed.
 func TestBuildRegistryWindowAnchored(t *testing.T) {
 	dir := t.TempDir()
-	reg, err := buildRegistry(singleBudgetCfg(dir, true, 1, 5000, 30*24*time.Hour))
+	reg, _, err := buildRegistry(singleBudgetCfg(dir, true, 1, 5000, 30*24*time.Hour))
 	if err != nil {
 		t.Fatalf("buildRegistry: %v", err)
 	}
@@ -38,7 +38,7 @@ func TestBuildRegistryWindowAnchored(t *testing.T) {
 // TestBuildRegistryNoCreateFails confirms building without -create over an empty
 // state dir is an error, not a silent empty budget.
 func TestBuildRegistryNoCreateFails(t *testing.T) {
-	if _, err := buildRegistry(singleBudgetCfg(t.TempDir(), false, 1, 5000, time.Hour)); err == nil {
+	if _, _, err := buildRegistry(singleBudgetCfg(t.TempDir(), false, 1, 5000, time.Hour)); err == nil {
 		t.Fatal("expected error building registry without -create over empty dir")
 	}
 }
@@ -47,13 +47,13 @@ func TestBuildRegistryNoCreateFails(t *testing.T) {
 // second build without -create.
 func TestBuildRegistryReopens(t *testing.T) {
 	dir := t.TempDir()
-	reg, err := buildRegistry(singleBudgetCfg(dir, true, 2, 1000, time.Hour))
+	reg, _, err := buildRegistry(singleBudgetCfg(dir, true, 2, 1000, time.Hour))
 	if err != nil {
 		t.Fatal(err)
 	}
 	_ = reg.Close()
 
-	reg2, err := buildRegistry(singleBudgetCfg(dir, false, 0, 0, 0)) // no -create; must recover
+	reg2, _, err := buildRegistry(singleBudgetCfg(dir, false, 0, 0, 0)) // no -create; must recover
 	if err != nil {
 		t.Fatalf("reopen failed: %v", err)
 	}

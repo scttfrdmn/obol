@@ -8,6 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Node-type cost config + worst-case escrow (issue #65): `obold -config` gains `node_types`
+  (name → rate, expressible per `s`/`m`/`h` — normalized to integer units/second at load, with a
+  clear error if a rate doesn't divide cleanly) and `partitions` (name → the node types it can
+  place on). When a submission's partition has node types configured, the gate escrows the
+  **worst-case** (max) rate over that set — since the node isn't chosen yet — instead of the
+  TRES/flat rate. Partitions without node-type config keep the existing pricing. (The BIND-time
+  true-up to the actual node's rate follows in the next PR, using the `Reprice` transition.)
 - Budget `Reprice(jobID, newRate, now)` kernel transition (issue #65): lowers a live escrow's cost
   rate before it starts, refunding the over-reservation (`Reserved → B`, `B0` unchanged). This is
   the node-type cost true-up — the gate escrows the worst-case node rate at submit (placement

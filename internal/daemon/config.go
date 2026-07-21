@@ -22,6 +22,54 @@ type Config struct {
 	// preserving pre-authz behavior. Setting either turns enforcement on.
 	AdminUsers  []string `json:"admin_users,omitempty"`
 	AdminGroups []string `json:"admin_groups,omitempty"`
+
+	// Node-type cost model (issue #65). NodeTypes maps a node-type name to its
+	// cost rate. Partitions maps a partition to the set of node types it can place
+	// on. When a partition has node types configured, the gate escrows the
+	// WORST-CASE (max) rate over that set at submit (placement is unknown), and
+	// the daemon reprices to the actual node's rate at BIND. When a partition is
+	// absent here, cost falls back to TRES weights / the account's flat rate — all
+	// prior behavior intact.
+	NodeTypes  map[string]NodeRate `json:"node_types,omitempty"`
+	Partitions []PartitionConfig   `json:"partitions,omitempty"`
+}
+
+// NodeRate is a node type's cost, expressed as an amount per time unit for
+// admin convenience (e.g. 250 per "h"). The kernel bills per second in integer
+// money, so the unit must divide evenly into per-second — validated at load.
+type NodeRate struct {
+	Rate int64  `json:"rate"`          // cost per Per
+	Per  string `json:"per,omitempty"` // "s" (default), "m", or "h"
+}
+
+// perSecond converts the rate to integer units/second, or errors if it does not
+// divide cleanly (e.g. 250/h = 250/3600 is fractional). Keeps the kernel's
+// exact-integer money invariant intact.
+func (r NodeRate) perSecond() (int64, error) {
+	var div int64
+	switch r.Per {
+	case "", "s":
+		div = 1
+	case "m":
+		div = 60
+	case "h":
+		div = 3600
+	default:
+		return 0, fmt.Errorf("bad per %q (want s|m|h)", r.Per)
+	}
+	if r.Rate <= 0 {
+		return 0, fmt.Errorf("rate must be positive")
+	}
+	if r.Rate%div != 0 {
+		return 0, fmt.Errorf("rate %d per %q is not a whole number of units/second (%d does not divide %d)", r.Rate, r.Per, div, r.Rate)
+	}
+	return r.Rate / div, nil
+}
+
+// PartitionConfig lists the node types a partition can place on (issue #65).
+type PartitionConfig struct {
+	Name      string   `json:"name"`
+	NodeTypes []string `json:"node_types"`
 }
 
 // AccountConfig describes one account's budget and optional access restriction.
@@ -100,6 +148,31 @@ func (c *Config) validate() error {
 		}
 		if _, err := a.windowOrDefault(); err != nil {
 			return err
+		}
+	}
+	// Node-type cost: each rate must be a whole number of units/second; each
+	// partition's node types must resolve to a configured node type.
+	for name, nr := range c.NodeTypes {
+		if _, err := nr.perSecond(); err != nil {
+			return fmt.Errorf("node_type %q: %w", name, err)
+		}
+	}
+	pseen := make(map[string]bool, len(c.Partitions))
+	for _, p := range c.Partitions {
+		if p.Name == "" {
+			return fmt.Errorf("partition with empty name")
+		}
+		if pseen[p.Name] {
+			return fmt.Errorf("duplicate partition %q", p.Name)
+		}
+		pseen[p.Name] = true
+		if len(p.NodeTypes) == 0 {
+			return fmt.Errorf("partition %q: no node types", p.Name)
+		}
+		for _, nt := range p.NodeTypes {
+			if _, ok := c.NodeTypes[nt]; !ok {
+				return fmt.Errorf("partition %q: unknown node type %q", p.Name, nt)
+			}
 		}
 	}
 	return nil
