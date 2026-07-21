@@ -149,6 +149,8 @@ func (s *Server) dispatch(req *wire.Frame, peer PeerCred) *wire.Frame {
 		return s.handleCreate(req.Create, peer)
 	case wire.KindAttach:
 		return s.handleAttach(req.Attach, peer)
+	case wire.KindTransfer:
+		return s.handleTransfer(req.Transfer, peer)
 	case wire.KindPing:
 		return wire.PingFrame() // echo: liveness only
 	default:
@@ -353,6 +355,33 @@ func (s *Server) handleTopUp(req *wire.TopUpRequest, peer PeerCred) *wire.Frame 
 	st := bd.Report(s.now())
 	return &wire.Frame{MsgKind: wire.KindTopUp, TopUpResp: &wire.TopUpResponse{
 		OK: true, NewBalance: st.B, NewB0: st.B0,
+	}}
+}
+
+// handleTransfer moves money between two account budgets. MUTATING verb: the
+// caller must be an admin. The atomic, crash-safe two-leg move lives in
+// Registry.Transfer; this handler authorizes, invokes it, and reports balances.
+func (s *Server) handleTransfer(req *wire.TransferRequest, peer PeerCred) *wire.Frame {
+	if req == nil {
+		return transferReject("empty transfer request")
+	}
+	if ok, reason := s.requireAdmin(peer); !ok {
+		return transferReject(reason)
+	}
+	moved, err := s.reg.Transfer(req.From, req.To, req.Amount, req.All)
+	if err != nil {
+		return transferReject(err.Error())
+	}
+	now := s.now()
+	var fromBal, toBal int64
+	if bd, err := s.reg.Resolve(req.From); err == nil {
+		fromBal = bd.Report(now).B
+	}
+	if bd, err := s.reg.Resolve(req.To); err == nil {
+		toBal = bd.Report(now).B
+	}
+	return &wire.Frame{MsgKind: wire.KindTransfer, TransferResp: &wire.TransferResponse{
+		OK: true, Moved: moved, FromBalance: fromBal, ToBalance: toBal,
 	}}
 }
 
@@ -668,4 +697,8 @@ func resolveReject(reason string) *wire.Frame {
 
 func simulateReject(reason string) *wire.Frame {
 	return &wire.Frame{MsgKind: wire.KindSimulate, SimulateResp: &wire.SimulateResponse{OK: false, Reason: reason}}
+}
+
+func transferReject(reason string) *wire.Frame {
+	return &wire.Frame{MsgKind: wire.KindTransfer, TransferResp: &wire.TransferResponse{OK: false, Reason: reason}}
 }

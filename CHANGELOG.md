@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `obol transfer --from A --to B (--amount N | --all)` — move money between two
+  account budgets, admin-gated. The move is **atomic across a crash**: a daemon
+  transfer journal plus per-leg WAL tagging (`Xfer`) let restart recovery complete
+  or abort an interrupted transfer, so money is never created or destroyed
+  (conservation holds across both budgets). New `TRANSFER` wire message. Closes
+  the CLI / budget-management milestone (#25).
 - Kernel `Budget.Withdraw` — the money-symmetric inverse of `TopUp`: lowers both
   `B` and `B0`, capped at available balance (never reserved/consumed), logged and
   replayed on recovery, allowed regardless of lifecycle status. Building block for

@@ -51,6 +51,8 @@ func Run(args []string, out, errOut io.Writer) int {
 		return cmdAttach(rest, out, errOut, false)
 	case "detach":
 		return cmdAttach(rest, out, errOut, true)
+	case "transfer":
+		return cmdTransfer(rest, out, errOut)
 	case "ping":
 		return cmdPing(rest, out, errOut)
 	case "help", "-h", "--help":
@@ -105,6 +107,7 @@ Usage:
   obol attach  --account A [--user U]... [--group G]...   grant access (admin)
   obol detach  --account A [--user U]... [--group G]...   revoke access (admin)
   obol topup   --account A --amount N    add money to an account (admin)
+  obol transfer --from A --to B (--amount N | --all)  move money between accounts (admin)
   obol list                              list accounts and balances
   obol log     [--account A]             render an account's transaction log
   obol resolve  --account A [--partition P] [--time-limit S] [--uid U]  dry-run the gate decision

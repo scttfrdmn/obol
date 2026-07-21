@@ -349,11 +349,39 @@ Each Slurm event invokes a kernel transition that is already built and tested:
 | scancel | `Cancel(token, elapsed, now)` |
 | `NODE_FAIL` / preempt | `InfraFail(token, elapsed, now)` (flag routes bill vs writeoff) |
 | period boundary | `Lapse()` (admin-driven, between-windows) |
+| admin add money | `TopUp(amount, now)` (raises B and B0 together) |
+| admin remove money | `Withdraw(amount, now)` (lowers B and B0; caps at available B) |
+| admin move money | `obol transfer` → `Withdraw` + `TopUp`, journaled (§12.1) |
 | crash recovery | WAL replay through the same transitions |
 | lost completion | `SweepOrphans(liveIDs, policy, now)` + unbound-token TTL |
 
 The seam adds no new money or burst logic — it only routes real events onto transitions whose
 conservation and concurrency properties are already proven.
+
+### 12.1 Atomic transfer between two budgets (`obol transfer`, #25)
+
+Transfer is the **first operation to move money between two independent kernels**, each with its
+own lock and WAL. Conservation (invariant #1) must hold across *both* budgets, not just each one.
+
+A transfer is two legs: `from.Withdraw(amt)` then `to.TopUp(amt)`. Each leg is individually
+crash-safe via its own WAL, but a crash *after* the withdraw's `fsync` and *before* the topup's
+would **destroy** the in-flight amount. Two mechanisms close that window:
+
+- **Per-leg WAL tag.** Each leg's logged command carries a transfer id (`Xfer`). `budget.HasXfer`
+  reads a budget's WAL to ask "did the leg with this id commit?" — so recovery knows which legs
+  landed, making each leg **exactly-once**.
+- **Daemon journal.** Before the first leg, the daemon `fsync`s a small record
+  (`<state-dir>/transfers/<id>.json`: `{from, to, amount, now}`). On restart, `recoverTransfers`
+  reads leftover records and resolves each from what the two WALs show:
+  - `withdrew && !deposited` → money left the source but never landed → **complete the deposit**.
+  - `!withdrew` → no money moved (deposit never precedes withdraw) → **abort** (drop the record;
+    do *not* re-run the withdraw, which a concurrent submit could now make impossible).
+  - `!withdrew && deposited` → impossible ordering → **corruption, surfaced loudly**.
+
+The two legs run **sequentially** (withdraw fully commits before topup begins), so only one kernel
+lock is ever held at a time — no lock-ordering deadlock. The journaled `now` replays both legs,
+preserving pure-`(state, command, now)`. Withdraw caps at *available* `B`, so reserved/consumed
+money committed to live work can never be moved out from under it.
 
 ---
 
