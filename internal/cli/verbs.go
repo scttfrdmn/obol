@@ -466,6 +466,86 @@ func cmdSimulate(args []string, out, errOut io.Writer) int {
 	return 3
 }
 
+// stringList is a flag.Value that accumulates repeated flags (e.g. --user a
+// --user b -> ["a","b"]).
+type stringList []string
+
+func (s *stringList) String() string { return strings.Join(*s, ",") }
+func (s *stringList) Set(v string) error {
+	*s = append(*s, v)
+	return nil
+}
+
+// cmdCreate creates a new account budget at runtime (admin-gated daemon-side).
+func cmdCreate(args []string, out, errOut io.Writer) int {
+	fs := flag.NewFlagSet("create", flag.ContinueOnError)
+	fs.SetOutput(errOut)
+	socket := socketFlag(fs)
+	account := fs.String("account", "", "account name")
+	balance := fs.Int64("balance", 0, "initial allocation (non-negative)")
+	rate := fs.Int64("rate", 0, "flat cost rate (units/second, positive)")
+	window := fs.String("window", "", "budget window (Go duration, e.g. 720h; default 720h)")
+	var users, groups stringList
+	fs.Var(&users, "allow-user", "restrict access to this user (repeatable)")
+	fs.Var(&groups, "allow-group", "restrict access to this group (repeatable)")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if *account == "" || *rate <= 0 || *balance < 0 {
+		return fail(errOut, fmt.Errorf("--account, a positive --rate, and a non-negative --balance are required"))
+	}
+	resp, err := roundTrip(*socket, wire.CreateFrame(&wire.CreateRequest{
+		Account: *account, Balance: *balance, Rate: *rate, Window: *window,
+		AllowUsers: users, AllowGroups: groups,
+	}))
+	if err != nil {
+		return fail(errOut, err)
+	}
+	return ackResult(out, errOut, resp, fmt.Sprintf("account %s created (balance %d, rate %d/s)", *account, *balance, *rate))
+}
+
+// cmdAttach adds (detach=false) or removes (detach=true) users/groups on an
+// account's access list.
+func cmdAttach(args []string, out, errOut io.Writer, detach bool) int {
+	name := "attach"
+	if detach {
+		name = "detach"
+	}
+	fs := flag.NewFlagSet(name, flag.ContinueOnError)
+	fs.SetOutput(errOut)
+	socket := socketFlag(fs)
+	account := fs.String("account", "", "account")
+	var users, groups stringList
+	fs.Var(&users, "user", "user to "+name+" (repeatable)")
+	fs.Var(&groups, "group", "group to "+name+" (repeatable)")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if *account == "" || (len(users) == 0 && len(groups) == 0) {
+		return fail(errOut, fmt.Errorf("--account and at least one --user or --group are required"))
+	}
+	resp, err := roundTrip(*socket, wire.AttachFrame(&wire.AttachRequest{
+		Account: *account, Users: users, Groups: groups, Detach: detach,
+	}))
+	if err != nil {
+		return fail(errOut, err)
+	}
+	r := resp.AttachResp
+	if r == nil || !r.OK {
+		reason := "empty response"
+		if r != nil {
+			reason = r.Reason
+		}
+		return fail(errOut, fmt.Errorf("%s rejected: %s", name, reason))
+	}
+	allow := "open (no restriction)"
+	if len(r.AllowUsers) > 0 || len(r.AllowGroups) > 0 {
+		allow = fmt.Sprintf("users=%v groups=%v", r.AllowUsers, r.AllowGroups)
+	}
+	pf(out, "ok: %s access for %s → %s\n", name, *account, allow)
+	return 0
+}
+
 // --- small formatting/parsing helpers ---
 
 func parseSettleKind(s string) (wire.SettleKind, error) {

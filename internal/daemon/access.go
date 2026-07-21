@@ -70,7 +70,7 @@ func (o *osIdentity) lookup(uid uint32) (string, []string, error) {
 // for a restricted account it fails closed (real money must not leak on an
 // identity error).
 func (s *Server) authorize(account string, uid uint32) (bool, string) {
-	ac, ok := s.reg.access[account]
+	ac, ok := s.reg.accessOf(account)
 	if !ok || !ac.restricted() {
 		return true, "" // unrestricted: Slurm already authorized account membership
 	}
@@ -145,7 +145,7 @@ func (s *Server) canRead(account string, peer PeerCred) bool {
 	if ok, _ := s.requireAdmin(peer); ok {
 		return true
 	}
-	ac, ok := s.reg.access[account]
+	ac, ok := s.reg.accessOf(account)
 	if !ok {
 		return false
 	}

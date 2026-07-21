@@ -145,6 +145,10 @@ func (s *Server) dispatch(req *wire.Frame, peer PeerCred) *wire.Frame {
 		return s.handleResolve(req.Resolve, peer)
 	case wire.KindSimulate:
 		return s.handleSimulate(req.Simulate, peer)
+	case wire.KindCreate:
+		return s.handleCreate(req.Create, peer)
+	case wire.KindAttach:
+		return s.handleAttach(req.Attach, peer)
 	case wire.KindPing:
 		return wire.PingFrame() // echo: liveness only
 	default:
@@ -545,6 +549,83 @@ func (s *Server) handleSimulate(req *wire.SimulateRequest, peer PeerCred) *wire.
 		Cost: sim.Cost, Balance: bd.Report(now).B, Admit: sim.Admit,
 		Deny: sim.Reason, Runway: sim.Runway,
 	}}
+}
+
+// handleCreate creates a new account budget at runtime. Mutating verb → admin.
+func (s *Server) handleCreate(req *wire.CreateRequest, peer PeerCred) *wire.Frame {
+	if req == nil {
+		return ackReject("empty create request")
+	}
+	if ok, reason := s.requireAdmin(peer); !ok {
+		return ackReject(reason)
+	}
+	err := s.reg.Create(AccountConfig{
+		Name: req.Account, Balance: req.Balance, Rate: req.Rate, Window: req.Window,
+		AllowUsers: req.AllowUsers, AllowGroups: req.AllowGroups,
+	})
+	if err != nil {
+		return ackReject(err.Error())
+	}
+	return &wire.Frame{MsgKind: wire.KindCreate, AckResp: &wire.AckResponse{OK: true}}
+}
+
+// handleAttach adds or removes users/groups on an account's access list.
+// Mutating verb → admin.
+func (s *Server) handleAttach(req *wire.AttachRequest, peer PeerCred) *wire.Frame {
+	attachReject := func(reason string) *wire.Frame {
+		return &wire.Frame{MsgKind: wire.KindAttach, AttachResp: &wire.AttachResponse{OK: false, Reason: reason}}
+	}
+	if req == nil {
+		return attachReject("empty attach request")
+	}
+	if ok, reason := s.requireAdmin(peer); !ok {
+		return attachReject(reason)
+	}
+	ac, ok := s.reg.accessOf(req.Account)
+	if !ok {
+		return attachReject((&budgetErr{req.Account}).Error())
+	}
+	users, groups := ac.AllowUsers, ac.AllowGroups
+	if req.Detach {
+		users = removeAll(users, req.Users)
+		groups = removeAll(groups, req.Groups)
+	} else {
+		users = addAll(users, req.Users)
+		groups = addAll(groups, req.Groups)
+	}
+	if err := s.reg.SetAccess(req.Account, users, groups); err != nil {
+		return attachReject(err.Error())
+	}
+	return &wire.Frame{MsgKind: wire.KindAttach, AttachResp: &wire.AttachResponse{
+		OK: true, AllowUsers: users, AllowGroups: groups,
+	}}
+}
+
+// budgetErr formats a consistent "no budget for account" message.
+type budgetErr struct{ account string }
+
+func (e *budgetErr) Error() string { return "no budget for account: " + e.account }
+
+// addAll returns set ∪ add (order-preserving, deduped).
+func addAll(set, add []string) []string {
+	out := append([]string(nil), set...)
+	for _, v := range add {
+		if !contains(out, v) {
+			out = append(out, v)
+		}
+	}
+	return out
+}
+
+// removeAll returns set minus rm.
+func removeAll(set, rm []string) []string {
+	out := set[:0:0]
+	for _, v := range set {
+		if !contains(rm, v) {
+			out = append(out, v)
+		}
+	}
+	return out
 }
 
 // mintToken returns a unique, unforgeable correlation token. The "budget:" prefix

@@ -57,6 +57,8 @@ const (
 	KindSetWindow Kind = "set_window"
 	KindResolve   Kind = "resolve"
 	KindSimulate  Kind = "simulate"
+	KindCreate    Kind = "create"
+	KindAttach    Kind = "attach"
 )
 
 // SettleKind names how a job ended, routing to the matching kernel transition.
@@ -275,6 +277,33 @@ type SimulateResponse struct {
 	Runway     int64  `json:"runway,omitempty"` // time-to-empty seconds at current balance/rate; -1 if none
 }
 
+// CreateRequest creates a new account budget at runtime (admin-only).
+type CreateRequest struct {
+	Account     string   `json:"account"`
+	Balance     int64    `json:"balance"`
+	Rate        int64    `json:"rate"`
+	Window      string   `json:"window,omitempty"`
+	AllowUsers  []string `json:"allow_users,omitempty"`
+	AllowGroups []string `json:"allow_groups,omitempty"`
+}
+
+// AttachRequest adds or removes users/groups on an account's access list
+// (admin-only). Detach=true removes; otherwise adds.
+type AttachRequest struct {
+	Account string   `json:"account"`
+	Users   []string `json:"users,omitempty"`
+	Groups  []string `json:"groups,omitempty"`
+	Detach  bool     `json:"detach,omitempty"`
+}
+
+// AttachResponse acknowledges an attach/detach with the resulting access lists.
+type AttachResponse struct {
+	OK          bool     `json:"ok"`
+	Reason      string   `json:"reason,omitempty"`
+	AllowUsers  []string `json:"allow_users,omitempty"`
+	AllowGroups []string `json:"allow_groups,omitempty"`
+}
+
 // LogRequest asks for the audit log (WAL render) of an account's budget.
 type LogRequest struct {
 	Account string `json:"account,omitempty"`
@@ -324,6 +353,8 @@ type Frame struct {
 	SetWindow *SetWindowRequest `json:"set_window,omitempty"`
 	Resolve   *ResolveRequest   `json:"resolve,omitempty"`
 	Simulate  *SimulateRequest  `json:"simulate,omitempty"`
+	Create    *CreateRequest    `json:"create,omitempty"`
+	Attach    *AttachRequest    `json:"attach,omitempty"`
 
 	// Responses (one populated per response frame).
 	GateResp     *GateResponse     `json:"gate_resp,omitempty"`
@@ -336,6 +367,7 @@ type Frame struct {
 	AckResp      *AckResponse      `json:"ack_resp,omitempty"`
 	ResolveResp  *ResolveResponse  `json:"resolve_resp,omitempty"`
 	SimulateResp *SimulateResponse `json:"simulate_resp,omitempty"`
+	AttachResp   *AttachResponse   `json:"attach_resp,omitempty"`
 }
 
 // Sentinel errors surfaced by decode. ErrVersion is distinguished so a caller
@@ -462,3 +494,9 @@ func ResolveFrame(req *ResolveRequest) *Frame {
 func SimulateFrame(req *SimulateRequest) *Frame {
 	return &Frame{MsgKind: KindSimulate, Simulate: req}
 }
+
+// CreateFrame wraps a CreateRequest in a request Frame.
+func CreateFrame(req *CreateRequest) *Frame { return &Frame{MsgKind: KindCreate, Create: req} }
+
+// AttachFrame wraps an AttachRequest in a request Frame.
+func AttachFrame(req *AttachRequest) *Frame { return &Frame{MsgKind: KindAttach, Attach: req} }

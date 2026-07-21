@@ -46,6 +46,9 @@ func TestRoundTrip(t *testing.T) {
 		{"ack", &Frame{MsgKind: KindSetRate, AckResp: &AckResponse{OK: true}}},
 		{"resolve", ResolveFrame(&ResolveRequest{Account: "lab", Partition: "priced", TimeLimit: 100})},
 		{"simulate", SimulateFrame(&SimulateRequest{Account: "lab", TimeLimit: 100})},
+		{"create", CreateFrame(&CreateRequest{Account: "lab2", Balance: 5000, Rate: 2})},
+		{"attach", AttachFrame(&AttachRequest{Account: "lab2", Users: []string{"alice"}})},
+		{"attach-resp", &Frame{MsgKind: KindAttach, AttachResp: &AttachResponse{OK: true}}},
 		{"ping", PingFrame()},
 	}
 	for _, tc := range cases {

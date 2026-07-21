@@ -207,3 +207,46 @@ func TestSetRateWindowAdminGated(t *testing.T) {
 		t.Errorf("set-rate on unknown account should be rejected")
 	}
 }
+
+// TestCreateAndAttachAdminGated confirms create/attach require admin and that
+// attach actually changes the access verdict.
+func TestCreateAndAttachAdminGated(t *testing.T) {
+	srv := newAdminServer(t) // admins alice(10)/ops(11); mallory=13
+
+	// Non-admin create rejected.
+	if r := srv.handleCreate(&wire.CreateRequest{Account: "lab_x", Balance: 100, Rate: 1}, adminPeer(13)); r.AckResp == nil || r.AckResp.OK {
+		t.Errorf("non-admin create should be rejected: %+v", r.AckResp)
+	}
+	if _, err := srv.reg.Resolve("lab_x"); err == nil {
+		t.Error("lab_x should not exist after a rejected create")
+	}
+	// Admin create succeeds.
+	if r := srv.handleCreate(&wire.CreateRequest{Account: "lab_x", Balance: 100, Rate: 1, Window: "1000000s"}, adminPeer(10)); r.AckResp == nil || !r.AckResp.OK {
+		t.Fatalf("admin create rejected: %+v", r.AckResp)
+	}
+	if _, err := srv.reg.Resolve("lab_x"); err != nil {
+		t.Errorf("lab_x should resolve after create: %v", err)
+	}
+
+	// Attach to lab_x (currently open) restricts it. Non-admin attach rejected first.
+	if r := srv.handleAttach(&wire.AttachRequest{Account: "lab_x", Users: []string{"alice"}}, adminPeer(13)); r.AttachResp == nil || r.AttachResp.OK {
+		t.Errorf("non-admin attach should be rejected: %+v", r.AttachResp)
+	}
+	if r := srv.handleAttach(&wire.AttachRequest{Account: "lab_x", Users: []string{"alice"}}, adminPeer(10)); r.AttachResp == nil || !r.AttachResp.OK {
+		t.Fatalf("admin attach rejected: %+v", r.AttachResp)
+	}
+	// lab_x is now restricted to alice: alice(10) authorized, mallory(13) not.
+	if ok, _ := srv.authorize("lab_x", 10); !ok {
+		t.Error("alice should be authorized for lab_x after attach")
+	}
+	if ok, _ := srv.authorize("lab_x", 13); ok {
+		t.Error("mallory should NOT be authorized for restricted lab_x")
+	}
+	// Detach alice -> lab_x open again.
+	if r := srv.handleAttach(&wire.AttachRequest{Account: "lab_x", Users: []string{"alice"}, Detach: true}, adminPeer(10)); r.AttachResp == nil || !r.AttachResp.OK {
+		t.Fatalf("detach rejected: %+v", r.AttachResp)
+	}
+	if ok, _ := srv.authorize("lab_x", 13); !ok {
+		t.Error("lab_x should be open after detaching its only user")
+	}
+}
