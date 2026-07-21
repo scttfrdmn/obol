@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-07-21
+
+Per-account budgets. obold moves from a single pot to a registry of independent
+budgets, one per Slurm account (`obold -config`), with resolution and optional
+access enforcement — removing the single-budget limitation. The kernel is
+untouched (each account conserves independently); the flat per-account model
+superseded the originally-planned account-tree rollup. Minor bump: additive
+`-config` and an additive `Account` field on the STATUS wire message; the
+single-budget path is unchanged when `-config` is absent.
+
 ### Added
 - Docker tier validates multi-account budgets on real Slurm (issue #18): obold boots with a
   two-account `-config` (`lab_smith` open, `lab_jones` restricted); tests prove per-account
@@ -158,7 +168,8 @@ lock-cheap read path (#7), and config durability (#8).
 - Seam design document (`docs/SEAM_DESIGN.md`) describing the Slurm attachment.
 - Project scaffold: CI (race + lint + coverage), release pipeline, governance.
 
-[Unreleased]: https://github.com/scttfrdmn/obol/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/scttfrdmn/obol/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/scttfrdmn/obol/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/scttfrdmn/obol/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/scttfrdmn/obol/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/scttfrdmn/obol/releases/tag/v0.1.0
