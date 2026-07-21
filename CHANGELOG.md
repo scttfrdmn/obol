@@ -8,6 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Unbound-token TTL janitor (#15): `obold` periodically reclaims escrows minted at
+  the gate but never bound to a job id — the submit→start orphan window, where a
+  daemon crash leaves reserved money the jobid-based sweep can't match. The kernel
+  `SweepUnbound(ttl, now)` full-refunds any never-started escrow older than the
+  TTL (it provably never ran); the escrow's submit time is persisted so the age
+  survives recovery. New `obold` flags `-unbound-ttl` (default 15m; 0 disables)
+  and `-sweep-interval` (default 1m).
 - Reference `site_factor` burst dispatch plugin (`seam/plugin/obol_site_factor.c`
   + README): the C plugin the `priority/multifactor` scheduler calls to hold a
   pending job at priority 0 when it has no burst headroom. It reads the job's

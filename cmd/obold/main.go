@@ -36,6 +36,8 @@ func main() {
 	fs.StringVar(&cfg.dir, "state-dir", "/var/lib/obol", "budget state directory (per-account WAL + snapshot)")
 	fs.StringVar(&cfg.configPath, "config", "", "multi-account config (JSON); omit for the single-budget flags below")
 	fs.BoolVar(&cfg.sync, "sync", true, "fdatasync the WAL on every append (production: true)")
+	fs.DurationVar(&cfg.unboundTTL, "unbound-ttl", 15*time.Minute, "reclaim escrows never bound to a job id after this long (submit→start orphan sweep); 0 disables")
+	fs.DurationVar(&cfg.sweepEvery, "sweep-interval", time.Minute, "how often the unbound-token janitor runs")
 	// Bootstrap parameters, used only when the state dir has no snapshot yet.
 	fs.BoolVar(&cfg.create, "create", false, "create a fresh budget if none exists in -state-dir")
 	fs.Int64Var(&cfg.rate, "rate", 1, "flat cost per second (units/sec) for a freshly created budget")
@@ -62,6 +64,8 @@ type config struct {
 	sync, create bool
 	rate, b0     int64
 	window       time.Duration
+	unboundTTL   time.Duration
+	sweepEvery   time.Duration
 	weights      daemon.Weights
 }
 
@@ -98,17 +102,44 @@ func run(cfg config) error {
 	// Graceful shutdown: close the listener so Serve returns, then Close flushes.
 	sigc := make(chan os.Signal, 1)
 	signal.Notify(sigc, syscall.SIGINT, syscall.SIGTERM)
+	stop := make(chan struct{})
 	go func() {
 		<-sigc
 		log.Println("obold: shutting down")
+		close(stop)
 		_ = ln.Close()
 	}()
+
+	// Unbound-token TTL janitor (#15): periodically reclaim escrows minted at the
+	// gate but never bound to a job id (daemon crashed in the submit→start gap).
+	if cfg.unboundTTL > 0 && cfg.sweepEvery > 0 {
+		go runJanitor(srv, cfg.unboundTTL, cfg.sweepEvery, stop)
+	}
 
 	log.Printf("obold %s serving on %s (state %s)", version, cfg.sock, cfg.dir)
 	if err := srv.Serve(ln); err != nil {
 		return fmt.Errorf("serve: %w", err)
 	}
 	return nil
+}
+
+// runJanitor drives the unbound-token TTL sweep on a ticker until stop is closed.
+// ttl is the age past which a never-bound escrow is presumed dead; every is the
+// tick interval. It logs only when it actually reclaims something, to stay quiet.
+func runJanitor(srv *daemon.Server, ttl, every time.Duration, stop <-chan struct{}) {
+	ttlSecs := budget.Seconds(ttl / time.Second)
+	t := time.NewTicker(every)
+	defer t.Stop()
+	for {
+		select {
+		case <-stop:
+			return
+		case <-t.C:
+			if n := srv.SweepUnbound(ttlSecs); n > 0 {
+				log.Printf("obold: unbound-token janitor reclaimed %d stale escrow(s)", n)
+			}
+		}
+	}
 }
 
 // buildRegistry constructs the budget registry. With -config it loads the
