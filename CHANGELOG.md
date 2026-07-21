@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Docker tier validates multi-account budgets on real Slurm (issue #18): obold boots with a
+  two-account `-config` (`lab_smith` open, `lab_jones` restricted); tests prove per-account
+  isolation (a `lab_smith` job debits only `lab_smith`, `lab_jones` untouched), access rejection
+  (an unlisted user is rejected from a restricted account), and no-budget rejection (an
+  unconfigured account is rejected) — alongside the existing lifecycle/token tests.
 - Per-account budgets + resolution (issue #18): obold now holds a **registry of independent
   budgets, one per Slurm account** (`obold -config <json>`), each with its own WAL+snapshot dir.
   A submission's `--account` resolves to exactly that account's budget (exact match; no rollup —

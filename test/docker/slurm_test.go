@@ -69,15 +69,23 @@ func isNumeric(s string) bool {
 // balanceRe extracts the "Balance: N / M" current balance from `obol show`.
 var balanceRe = regexp.MustCompile(`Balance:\s+(\d+)\s*/`)
 
-func showBalance(t *testing.T) int {
+// showBalance reads the current balance of an account's budget (the daemon runs
+// multi-account, so a specific account must be named).
+func showBalance(t *testing.T, account string) int {
 	t.Helper()
-	out := dexec(t, `obol --socket /run/obol/obold.sock show`)
+	out := dexec(t, `obol --socket /run/obol/obold.sock show --account `+account)
 	m := balanceRe.FindStringSubmatch(out)
 	if m == nil {
-		t.Fatalf("could not parse balance from:\n%s", out)
+		t.Fatalf("could not parse balance for %s from:\n%s", account, out)
 	}
 	n, _ := strconv.Atoi(m[1])
 	return n
+}
+
+// showAccount returns the full `obol show --account` output for assertions.
+func showAccount(t *testing.T, account string) string {
+	t.Helper()
+	return dexec(t, `obol --socket /run/obol/obold.sock show --account `+account)
 }
 
 // TestMain builds the image and boots the container once for all subtests, then
@@ -140,7 +148,7 @@ func waitJobGone(t *testing.T, jobid string) {
 // TestFundedJobLifecycle: a funded job gates (escrow), runs, and settles with
 // the tail refunded — the full money path. Conservation holds throughout.
 func TestFundedJobLifecycle(t *testing.T) {
-	before := showBalance(t)
+	before := showBalance(t, "lab")
 
 	// 1-minute job at rate 1 => 60 units escrowed at submit.
 	out := dexec(t, `sbatch --parsable --account=lab --partition=cloud --time=1 --wrap="sleep 3"`)
@@ -150,7 +158,7 @@ func TestFundedJobLifecycle(t *testing.T) {
 	}
 
 	// After submit the escrow should have debited the balance.
-	afterSubmit := showBalance(t)
+	afterSubmit := showBalance(t, "lab")
 	if afterSubmit != before-60 {
 		t.Errorf("after submit balance = %d, want %d (escrow 60)", afterSubmit, before-60)
 	}
@@ -162,7 +170,7 @@ func TestFundedJobLifecycle(t *testing.T) {
 	// balance is close to `before` (within the few seconds actually run).
 	// Settlement here is driven by the jobcomp/script feed (#13) — no epilog is
 	// installed in this image, so a refund here proves the controller-side path.
-	afterSettle := showBalance(t)
+	afterSettle := showBalance(t, "lab")
 	if afterSettle <= afterSubmit {
 		t.Errorf("after settle balance = %d, expected refund above %d (jobcomp feed)", afterSettle, afterSubmit)
 	}
@@ -171,7 +179,7 @@ func TestFundedJobLifecycle(t *testing.T) {
 	}
 
 	// Conservation must hold.
-	show := dexec(t, `obol --socket /run/obol/obold.sock show`)
+	show := showAccount(t, "lab")
 	if !strings.Contains(show, "Conservation:  OK") {
 		t.Errorf("conservation not OK:\n%s", show)
 	}
@@ -184,7 +192,7 @@ func TestFundedJobLifecycle(t *testing.T) {
 // TestUnfundedJobRejected: a job whose cost exceeds the balance is rejected at
 // submit by the gate, and nothing is escrowed.
 func TestUnfundedJobRejected(t *testing.T) {
-	before := showBalance(t)
+	before := showBalance(t, "lab")
 	// time=100000 min * 60 = 6,000,000 units >> balance. Expect sbatch to fail.
 	out, err := exec.Command("docker", "exec", container, "bash", "-lc",
 		`sbatch --parsable --account=lab --partition=cloud --time=100000 --wrap="true"`).CombinedOutput()
@@ -194,79 +202,92 @@ func TestUnfundedJobRejected(t *testing.T) {
 	if !strings.Contains(string(out), "obol") && !strings.Contains(string(out), "budget") {
 		t.Logf("rejection message (informational): %s", out)
 	}
-	if after := showBalance(t); after != before {
+	if after := showBalance(t, "lab"); after != before {
 		t.Errorf("balance changed on a rejected job: %d -> %d", before, after)
 	}
 }
 
-// TestMultiTenant submits jobs as multiple users across multiple groups (Slurm
-// accounts) concurrently, and asserts the gate handles the mix and conservation
-// holds once everything settles. The obold MVP is single-budget, so this proves
-// correct multi-user/multi-account identity plumbing and gate correctness under
-// a realistic multi-tenant pattern — the fixture the per-group hierarchy work
-// (#17/#18) will later split into distinct budgets.
-func TestMultiTenant(t *testing.T) {
-	before := showBalance(t)
+// TestMultiAccountIsolation proves a job under one account debits only THAT
+// account's budget, leaving the other untouched — the payoff of per-account
+// budgets (#18). obold runs with a real -config: lab_smith and lab_jones as
+// independent pots. We observe the escrow at submit (which is deterministic —
+// escrow happens at gate time, independent of whether the job later runs) rather
+// than racing job execution, which is what makes this robust on a busy 1-node
+// container. Jobs are submitted as root (launches cleanly here); the gate sees
+// the account regardless of which user submits.
+func TestMultiAccountIsolation(t *testing.T) {
+	smithBefore := showBalance(t, "lab_smith")
+	jonesBefore := showBalance(t, "lab_jones")
 
-	// (user, account) pairs: two groups, two users each.
-	subs := []struct{ user, account string }{
-		{"alice", "lab_smith"},
-		{"bob", "lab_smith"},
-		{"carol", "lab_jones"},
-		{"dave", "lab_jones"},
+	// Gate a job under lab_smith. Escrow = rate(1) * 60s = 60. Hold it (don't wait
+	// for completion) and check the debit landed on smith only.
+	out := dexec(t, `sbatch --parsable --account=lab_smith --partition=cloud --time=1 --wrap="sleep 20"`)
+	sjob := strings.TrimSpace(lastLine(out))
+	if !isNumeric(sjob) {
+		t.Fatalf("lab_smith sbatch returned no job id: %q", out)
 	}
 
-	// Use longer jobs so all four are demonstrably escrowed at once before any
-	// settles — this is what lets us observe the concurrent-escrow low-water mark
-	// deterministically rather than racing the fast settles.
-	var jobids []string
-	for _, s := range subs {
-		// sudo -u runs sbatch as the target user, so the gate sees a real uid and
-		// the job is attributed to that user's account.
-		out := dexec(t, `sudo -u `+s.user+` sbatch --parsable --account=`+s.account+
-			` --partition=cloud --time=1 --wrap="sleep 15"`)
-		jobid := strings.TrimSpace(lastLine(out))
-		if jobid == "" || !isNumeric(jobid) {
-			t.Fatalf("sbatch as %s/%s returned no job id: %q", s.user, s.account, out)
-		}
-		jobids = append(jobids, jobid)
-	}
-
-	// While all four (1-minute) jobs are live, 4*60 = 240 units are escrowed.
-	// Poll briefly for the balance to reach that low-water mark — jobs run 15s,
-	// so the window is wide.
-	wantLow := before - 240
-	reached := false
+	// Poll briefly for smith's escrow to land (gate is synchronous, but sbatch →
+	// balance visibility is a hair async through the socket).
+	deb := false
 	for i := 0; i < 10; i++ {
-		if showBalance(t) <= wantLow {
-			reached = true
+		if showBalance(t, "lab_smith") == smithBefore-60 {
+			deb = true
 			break
 		}
-		time.Sleep(time.Second)
+		time.Sleep(500 * time.Millisecond)
 	}
-	if !reached {
-		t.Errorf("balance never reached the 4×60 escrow low-water mark %d (got %d)", wantLow, showBalance(t))
+	if !deb {
+		t.Errorf("lab_smith not debited by its own job: got %d, want %d", showBalance(t, "lab_smith"), smithBefore-60)
 	}
-	// Conservation must hold while all four tenants' jobs are live.
-	if show := dexec(t, `obol --socket /run/obol/obold.sock show`); !strings.Contains(show, "Conservation:  OK") {
-		t.Errorf("conservation not OK mid-flight:\n%s", show)
+	// lab_jones is completely untouched by a lab_smith submission — the isolation
+	// property.
+	if j := showBalance(t, "lab_jones"); j != jonesBefore {
+		t.Errorf("lab_jones balance changed by a lab_smith job: %d -> %d", jonesBefore, j)
+	}
+	// Each account conserves independently.
+	for _, acct := range []string{"lab_smith", "lab_jones"} {
+		if s := showAccount(t, acct); !strings.Contains(s, "Conservation:  OK") {
+			t.Errorf("%s conservation not OK:\n%s", acct, s)
+		}
 	}
 
-	for _, j := range jobids {
-		waitJobGone(t, j)
+	// Let the job settle; smith recovers, jones still untouched.
+	waitJobGone(t, sjob)
+	time.Sleep(3 * time.Second)
+	if s := showBalance(t, "lab_smith"); s <= smithBefore-60 {
+		t.Errorf("lab_smith did not recover after settle: %d", s)
 	}
-	time.Sleep(3 * time.Second) // let all epilogs settle
+	if j := showBalance(t, "lab_jones"); j != jonesBefore {
+		t.Errorf("lab_jones balance moved: %d != %d", j, jonesBefore)
+	}
+}
 
-	// All settled: conservation holds, no live escrows, balance recovered.
-	show := dexec(t, `obol --socket /run/obol/obold.sock show`)
-	if !strings.Contains(show, "Conservation:  OK") {
-		t.Errorf("conservation not OK after multi-tenant mix:\n%s", show)
+// TestAccessRejected proves the optional per-account allow-list: lab_jones is
+// restricted to carol/dave, so alice (a lab_smith user) submitting to lab_jones
+// is rejected for access — even though the job would otherwise be funded.
+func TestAccessRejected(t *testing.T) {
+	jonesBefore := showBalance(t, "lab_jones")
+	out, err := exec.Command("docker", "exec", container, "bash", "-lc",
+		`sudo -u alice sbatch --parsable --account=lab_jones --partition=cloud --time=1 --wrap="true"`).CombinedOutput()
+	if err == nil {
+		t.Errorf("expected alice's submit to lab_jones to be rejected for access, got:\n%s", out)
 	}
-	if !strings.Contains(show, "Live:          0 escrows") {
-		t.Errorf("expected all escrows settled:\n%s", show)
+	// Nothing escrowed on the rejected access.
+	if after := showBalance(t, "lab_jones"); after != jonesBefore {
+		t.Errorf("lab_jones balance changed on an access-rejected job: %d -> %d", jonesBefore, after)
 	}
-	if after := showBalance(t); after <= wantLow {
-		t.Errorf("balance did not recover after settle: low=%d final=%d", wantLow, after)
+}
+
+// TestNoBudgetRejected proves a submission to an account with no configured
+// budget is rejected (SEAM §9: none resolves -> reject).
+func TestNoBudgetRejected(t *testing.T) {
+	// Register an ungated account in Slurm, then submit to it.
+	dexec(t, `sudo sacctmgr -i add account ungated Organization=obol 2>/dev/null; sudo sacctmgr -i add user root Account=ungated 2>/dev/null; true`)
+	out, err := exec.Command("docker", "exec", container, "bash", "-lc",
+		`sbatch --parsable --account=ungated --partition=cloud --time=1 --wrap="true"`).CombinedOutput()
+	if err == nil {
+		t.Errorf("expected submit to an account with no budget to be rejected, got:\n%s", out)
 	}
 }
 

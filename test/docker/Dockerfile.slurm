@@ -38,6 +38,7 @@ RUN getent group slurm  >/dev/null || groupadd -r slurm \
 COPY test/docker/slurm.conf      /etc/slurm/slurm.conf
 COPY test/docker/slurmdbd.conf   /etc/slurm/slurmdbd.conf
 COPY test/docker/cgroup.conf     /etc/slurm/cgroup.conf
+COPY test/docker/obold-config.json /etc/obol/obold-config.json
 COPY test/docker/entrypoint.sh   /usr/local/bin/entrypoint.sh
 COPY seam/lua/obol_wire.lua      /etc/slurm/lua/obol_wire.lua
 COPY seam/lua/obol_transport.lua /etc/slurm/lua/obol_transport.lua
