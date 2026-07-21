@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-07-21
+
+Live budget administration + diagnostics. Admins can adjust an account's rate and
+window at runtime (`set-rate`/`set-window`, the first logged config mutations —
+satisfying the issue #8 ordering guarantee), and anyone with read access can
+dry-run the gate's decision for a submission (`resolve`). Minor bump: additive
+`SET_RATE`/`SET_WINDOW`/`RESOLVE` wire messages and the `SetRate`/`SetWindow`
+kernel transitions; the money ledger and prior behavior are unchanged.
+
 ### Added
 - `obol resolve` — dry-run the gate decision (issue #24): given `--account [--partition]
   [--time-limit] [--uid]`, reports which budget resolves, the effective rate and its source
@@ -256,7 +265,8 @@ lock-cheap read path (#7), and config durability (#8).
 - Seam design document (`docs/SEAM_DESIGN.md`) describing the Slurm attachment.
 - Project scaffold: CI (race + lint + coverage), release pipeline, governance.
 
-[Unreleased]: https://github.com/scttfrdmn/obol/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/scttfrdmn/obol/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/scttfrdmn/obol/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/scttfrdmn/obol/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/scttfrdmn/obol/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/scttfrdmn/obol/compare/v0.2.0...v0.3.0
