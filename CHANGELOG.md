@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `obol dispatch` (alias `obol may-dispatch`) — the CLI face of the burst dispatch
+  query: reports whether a pending job would dispatch now or hold at priority 0,
+  with the rate, reservation, and projected pot. Exit 0 = would dispatch, 3 =
+  would hold. This is the CI-tested equivalent of what the `site_factor` plugin
+  asks the daemon (#14).
 - `DISPATCH` wire message + daemon `handleDispatch`: the burst dispatch query the
   `site_factor` plugin needs ("may this pending job start now, or hold at priority
   0?"). Read-only, visibility-scoped, resolves the job's rate like the gate, and

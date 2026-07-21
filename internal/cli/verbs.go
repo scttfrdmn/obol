@@ -470,6 +470,51 @@ func cmdSimulate(args []string, out, errOut io.Writer) int {
 	return 3
 }
 
+// cmdDispatch asks whether a pending job may start now given burst headroom, or
+// must hold at priority 0 — the CLI face of the site_factor dispatch query.
+// Exit 0 = would dispatch, 3 = would hold (mirrors gate/simulate), 1 transport.
+func cmdDispatch(args []string, out, errOut io.Writer) int {
+	fs := flag.NewFlagSet("dispatch", flag.ContinueOnError)
+	fs.SetOutput(errOut)
+	socket := socketFlag(fs)
+	account := fs.String("account", "", "account")
+	partition := fs.String("partition", "", "partition (for node-type pricing)")
+	timeLimit := fs.Int64("time-limit", 0, "walltime seconds")
+	cpus := fs.Int64("cpus", 0, "requested CPUs (for TRES pricing)")
+	gpus := fs.Int64("gpus", 0, "requested GPUs")
+	mem := fs.Int64("mem", 0, "requested memory MB")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if *account == "" || *timeLimit <= 0 {
+		return fail(errOut, fmt.Errorf("--account and a positive --time-limit are required"))
+	}
+	resp, err := roundTrip(*socket, wire.DispatchFrame(&wire.DispatchRequest{
+		Account: *account, Partition: *partition, TimeLimit: *timeLimit,
+		TRES: wire.TRES{CPUs: *cpus, GPUs: *gpus, Mem: *mem},
+	}))
+	if err != nil {
+		return fail(errOut, err)
+	}
+	r := resp.DispatchResp
+	if r == nil {
+		return fail(errOut, fmt.Errorf("empty dispatch response"))
+	}
+	if !r.OK {
+		return fail(errOut, fmt.Errorf("%s", r.Reason))
+	}
+	pf(out, "Account:  %s\n", r.Account)
+	pf(out, "Rate:     %d/s (%s)\n", r.Rate, r.RateSource)
+	pf(out, "Reserve:  %d tokens\n", r.Reserve)
+	pf(out, "Pot:      %d\n", r.Pot)
+	if r.Dispatch {
+		pf(out, "Verdict:  WOULD DISPATCH\n")
+		return 0
+	}
+	pf(out, "Verdict:  WOULD HOLD (%s)\n", r.Hold)
+	return 3
+}
+
 // stringList is a flag.Value that accumulates repeated flags (e.g. --user a
 // --user b -> ["a","b"]).
 type stringList []string

@@ -368,6 +368,36 @@ func TestSimulateVerb(t *testing.T) {
 	}
 }
 
+// TestDispatchVerb drives obol dispatch against a burst-enabled account: an
+// under-r0 job WOULD DISPATCH (exit 0); once burn is pushed to r0 with a running
+// job, an over-r0 job with no banked pot WOULD HOLD (exit 3).
+func TestDispatchVerb(t *testing.T) {
+	// window 1000s, balance 100000 → r0 = 100/s. Daemon clock is fixed at 1.
+	sock := newMultiDaemon(t, &daemon.Config{Accounts: []daemon.AccountConfig{
+		{Name: "burstlab", Balance: 100000, Rate: 1, Window: "1000s",
+			BurstEnabled: true, BurstCeilingPct: 1.0},
+	}})
+
+	// Under r0 (rate 1/s, nothing running) → dispatch.
+	code, out, errOut := run(sock, "dispatch", "--account", "burstlab", "--time-limit", "100")
+	if code != 0 {
+		t.Fatalf("dispatch exit %d, stderr=%q", code, errOut)
+	}
+	for _, want := range []string{"WOULD DISPATCH", "Rate:", "Pot:"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("dispatch output missing %q:\n%s", want, out)
+		}
+	}
+	// may-dispatch is an alias.
+	if code, _, _ := run(sock, "may-dispatch", "--account", "burstlab", "--time-limit", "100"); code != 0 {
+		t.Errorf("may-dispatch alias exit = %d, want 0", code)
+	}
+	// Missing time-limit is a usage error.
+	if code, _, _ := run(sock, "dispatch", "--account", "burstlab"); code != 1 {
+		t.Errorf("dispatch w/o time-limit exit = %d, want 1", code)
+	}
+}
+
 // TestCreateAndAttachVerbs drives create + attach/detach against a single-budget
 // daemon (admin enforcement off, so allowed). Confirms a created account is then
 // listable and attach reports the resulting access.

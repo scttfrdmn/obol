@@ -45,6 +45,8 @@ func Run(args []string, out, errOut io.Writer) int {
 		return cmdResolve(rest, out, errOut)
 	case "simulate", "estimate":
 		return cmdSimulate(rest, out, errOut)
+	case "dispatch", "may-dispatch":
+		return cmdDispatch(rest, out, errOut)
 	case "create":
 		return cmdCreate(rest, out, errOut)
 	case "attach":
@@ -112,6 +114,7 @@ Usage:
   obol log     [--account A]             render an account's transaction log
   obol resolve  --account A [--partition P] [--time-limit S] [--uid U]  dry-run the gate decision
   obol simulate --account A --time-limit S [--partition P] [--cpus N] [--gpus N]  will it fund? + runway
+  obol dispatch --account A --time-limit S [--partition P] [--cpus N] [--gpus N]  burst headroom: dispatch or hold?
   obol set-rate   --account A --rate N   set an account's flat cost rate (admin)
   obol set-window --account A (--window D | --start T --end T)  set the window (admin)
   obol ping                              health-check the daemon
