@@ -45,6 +45,12 @@ func Run(args []string, out, errOut io.Writer) int {
 		return cmdResolve(rest, out, errOut)
 	case "simulate", "estimate":
 		return cmdSimulate(rest, out, errOut)
+	case "create":
+		return cmdCreate(rest, out, errOut)
+	case "attach":
+		return cmdAttach(rest, out, errOut, false)
+	case "detach":
+		return cmdAttach(rest, out, errOut, true)
 	case "ping":
 		return cmdPing(rest, out, errOut)
 	case "help", "-h", "--help":
@@ -95,6 +101,9 @@ Usage:
   obol gate    --account A --partition P --time-limit S [--ntasks N]
   obol bind    --token T --jobid J [--node-type NT]
   obol settle  (--jobid J | --token T) --kind KIND [--runtime S] [--elapsed S]
+  obol create  --account A --balance N --rate R [--window D] [--allow-user U]... [--allow-group G]...  (admin)
+  obol attach  --account A [--user U]... [--group G]...   grant access (admin)
+  obol detach  --account A [--user U]... [--group G]...   revoke access (admin)
   obol topup   --account A --amount N    add money to an account (admin)
   obol list                              list accounts and balances
   obol log     [--account A]             render an account's transaction log

@@ -35,6 +35,26 @@ func newDaemon(t *testing.T) (string, *budget.Budget) {
 	return sock, bd
 }
 
+// newMultiDaemon starts a real multi-account daemon (registry with a state dir),
+// needed for verbs that mutate the registry (create/attach). Returns the socket.
+func newMultiDaemon(t *testing.T, cfg *daemon.Config) string {
+	t.Helper()
+	dir := t.TempDir()
+	reg, err := daemon.NewRegistry(cfg, dir, false, func() budget.Seconds { return 1 })
+	if err != nil {
+		t.Fatalf("NewRegistry: %v", err)
+	}
+	srv := daemon.NewWithRegistry(reg, func() budget.Seconds { return 1 }, daemon.Weights{})
+	sock := filepath.Join(dir, "obold.sock")
+	ln, err := net.Listen("unix", sock)
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	go func() { _ = srv.Serve(ln) }()
+	t.Cleanup(func() { _ = ln.Close(); _ = reg.Close() })
+	return sock
+}
+
 // run invokes a verb and returns exit code, stdout, stderr.
 func run(sock string, args ...string) (int, string, string) {
 	var out, errOut bytes.Buffer
@@ -345,5 +365,46 @@ func TestSimulateVerb(t *testing.T) {
 	// Missing time-limit is a usage error.
 	if code, _, _ := run(sock, "simulate", "--account", "default"); code != 1 {
 		t.Errorf("simulate w/o time-limit exit = %d, want 1", code)
+	}
+}
+
+// TestCreateAndAttachVerbs drives create + attach/detach against a single-budget
+// daemon (admin enforcement off, so allowed). Confirms a created account is then
+// listable and attach reports the resulting access.
+func TestCreateAndAttachVerbs(t *testing.T) {
+	sock := newMultiDaemon(t, &daemon.Config{Accounts: []daemon.AccountConfig{
+		{Name: "default", Balance: 100000, Rate: 1, Window: "1000000s"},
+	}})
+
+	// create a new account.
+	if code, out, errOut := run(sock, "create", "--account", "lab2", "--balance", "5000", "--rate", "2"); code != 0 {
+		t.Fatalf("create exit %d, stderr=%q", code, errOut)
+	} else if !strings.Contains(out, "created") {
+		t.Errorf("create out = %q", out)
+	}
+	// list shows both default and lab2.
+	if _, out, _ := run(sock, "list"); !strings.Contains(out, "lab2") {
+		t.Errorf("list missing created account:\n%s", out)
+	}
+	// attach a user; response reports the access list.
+	if code, out, errOut := run(sock, "attach", "--account", "lab2", "--user", "alice"); code != 0 {
+		t.Fatalf("attach exit %d, stderr=%q", code, errOut)
+	} else if !strings.Contains(out, "alice") {
+		t.Errorf("attach out = %q, want alice listed", out)
+	}
+	// detach it back to open.
+	if code, out, _ := run(sock, "detach", "--account", "lab2", "--user", "alice"); code != 0 || !strings.Contains(out, "open") {
+		t.Errorf("detach: exit %d out=%q, want open", code, out)
+	}
+}
+
+// TestCreateAttachBadArgs covers required-arg validation.
+func TestCreateAttachBadArgs(t *testing.T) {
+	sock, _ := newDaemon(t)
+	if code, _, _ := run(sock, "create", "--account", "x", "--rate", "0"); code != 1 {
+		t.Errorf("create rate=0: exit %d, want 1", code)
+	}
+	if code, _, _ := run(sock, "attach", "--account", "default"); code != 1 {
+		t.Errorf("attach with no user/group: exit %d, want 1", code)
 	}
 }

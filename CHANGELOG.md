@@ -8,6 +8,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `obol create` (#70) and `obol attach`/`obol detach` (#23) — live registry mutation. Admins can
+  create a new account's budget and grant/revoke user/group access **at runtime, without a daemon
+  restart**. The registry gained a `sync.RWMutex` (reads take RLock, mutations Lock; per-budget
+  kernel locks unchanged). Runtime changes are **durable and restart-safe**: a created account
+  persists via its own WAL/snapshot (as budgets already do) plus a daemon-owned `account.json`
+  (name + access lists — what the kernel snapshot deliberately doesn't hold); on startup the daemon
+  **discovers** existing account dirs under `-state-dir` and loads them, with `-config` only
+  bootstrapping accounts not already on disk (no config-file rewriting). Both verbs are admin-gated
+  by peer credentials. The kernel is untouched (`create` reuses `NewDurable`; access is a daemon
+  concern). Requires `obold -config` (the single-budget path has no state dir for live mutation).
+  Validated end-to-end incl. restart survival.
+
+### Added
 - `obol simulate` / `obol estimate` — will-it-fund + runway (issue #21): given an account and a
   hypothetical job (`--time-limit`, optional `--partition`/`--cpus`/`--gpus`/`--mem`), reports the
   cost, whether the gate would admit it now, the deny reason if not, and the budget's projected

@@ -1,9 +1,12 @@
 package daemon
 
 import (
+	"errors"
 	"net"
 	"os"
 	"path/filepath"
+	"strconv"
+	"sync"
 	"testing"
 
 	"github.com/scttfrdmn/obol/internal/budget"
@@ -169,5 +172,106 @@ func TestStatusSelectsAccount(t *testing.T) {
 	amb := call(t, dial, wire.StatusFrame(""))
 	if amb.StatusResp == nil || amb.StatusResp.OK {
 		t.Errorf("expected ambiguous-account error, got %+v", amb.StatusResp)
+	}
+}
+
+// TestRegistryCreatePersistsAndDiscovers covers runtime create + restart
+// discovery: create an account, reopen a fresh registry over the same state dir
+// (with a DIFFERENT config), and confirm the created account survived with its
+// balance and access — proving per-account state is the source of truth.
+func TestRegistryCreatePersistsAndDiscovers(t *testing.T) {
+	dir := t.TempDir()
+	reg, err := NewRegistry(twoAccountConfig(), dir, false, testNow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Create a third account at runtime.
+	if err := reg.Create(AccountConfig{Name: "lab_new", Balance: 7000, Rate: 3, Window: "1000000s", AllowUsers: []string{"zoe"}}); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	// Dup rejected.
+	if err := reg.Create(AccountConfig{Name: "lab_new", Balance: 1, Rate: 1}); !errors.Is(err, ErrExists) {
+		t.Errorf("dup create = %v, want ErrExists", err)
+	}
+	nb, _ := reg.Resolve("lab_new")
+	if nb.Balance() != 7000 {
+		t.Errorf("created balance = %d, want 7000", nb.Balance())
+	}
+	_ = reg.Close()
+
+	// Reopen with a config that does NOT mention lab_new; discovery must find it.
+	reg2, err := NewRegistry(twoAccountConfig(), dir, false, testNow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = reg2.Close() }()
+	nb2, err := reg2.Resolve("lab_new")
+	if err != nil {
+		t.Fatalf("lab_new not discovered after restart: %v", err)
+	}
+	if nb2.Balance() != 7000 {
+		t.Errorf("discovered balance = %d, want 7000", nb2.Balance())
+	}
+	// Access survived via account.json.
+	ac, ok := reg2.accessOf("lab_new")
+	if !ok || len(ac.AllowUsers) != 1 || ac.AllowUsers[0] != "zoe" {
+		t.Errorf("discovered access = %+v, want AllowUsers=[zoe]", ac)
+	}
+}
+
+// TestRegistrySetAccessPersists covers attach/detach persistence.
+func TestRegistrySetAccessPersists(t *testing.T) {
+	dir := t.TempDir()
+	reg, err := NewRegistry(twoAccountConfig(), dir, false, testNow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := reg.SetAccess("lab_smith", []string{"alice"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := reg.SetAccess("ghost", []string{"x"}, nil); !errors.Is(err, ErrNoBudget) {
+		t.Errorf("SetAccess unknown = %v, want ErrNoBudget", err)
+	}
+	_ = reg.Close()
+
+	reg2, err := NewRegistry(twoAccountConfig(), dir, false, testNow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = reg2.Close() }()
+	ac, _ := reg2.accessOf("lab_smith")
+	if len(ac.AllowUsers) != 1 || ac.AllowUsers[0] != "alice" {
+		t.Errorf("access not persisted: %+v", ac)
+	}
+}
+
+// TestRegistryConcurrentCreateResolve hammers create + resolve concurrently to
+// prove the RWMutex discipline under -race.
+func TestRegistryConcurrentCreateResolve(t *testing.T) {
+	reg, err := NewRegistry(twoAccountConfig(), t.TempDir(), false, testNow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = reg.Close() }()
+
+	var wg sync.WaitGroup
+	for i := 0; i < 20; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			_ = reg.Create(AccountConfig{Name: "acct" + strconv.Itoa(i), Balance: 100, Rate: 1, Window: "1000000s"})
+		}(i)
+	}
+	for i := 0; i < 20; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, _ = reg.Resolve("lab_smith")
+			_ = reg.Names()
+		}()
+	}
+	wg.Wait()
+	if len(reg.Names()) != 22 { // 2 config + 20 created
+		t.Errorf("account count = %d, want 22", len(reg.Names()))
 	}
 }
