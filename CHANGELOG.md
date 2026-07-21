@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Kernel `Budget.Withdraw` — the money-symmetric inverse of `TopUp`: lowers both
+  `B` and `B0`, capped at available balance (never reserved/consumed), logged and
+  replayed on recovery, allowed regardless of lifecycle status. Building block for
+  `obol transfer` (#77, toward #25).
+- Transfer correlation on the WAL: an optional `Xfer` tag on topup/withdraw
+  commands (`TopUpXfer`/`WithdrawXfer`) plus a read-only `budget.HasXfer` lookup,
+  so a transfer's two legs are exactly-once identifiable across two budget WALs.
+  Audit log renders the `withdraw` kind and its `xfer` tag.
+
 ## [0.7.0] - 2026-07-21
 
 Runtime budget administration + pre-submit estimation. Admins can now create

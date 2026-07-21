@@ -247,8 +247,12 @@ func cmdLog(args []string, out, errOut io.Writer) int {
 // logDetail renders the fields relevant to a log entry's kind.
 func logDetail(e wire.LogEntry) string {
 	switch {
-	case e.Kind == "topup":
-		return fmt.Sprintf("amount=%d", e.Amount)
+	case e.Kind == "topup" || e.Kind == "withdraw":
+		d := fmt.Sprintf("amount=%d", e.Amount)
+		if e.Xfer != "" {
+			d += " xfer=" + e.Xfer
+		}
+		return d
 	case e.Kind == "set-rate":
 		return fmt.Sprintf("rate=%d", e.Rate)
 	case e.Kind == "set-window":
