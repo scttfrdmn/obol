@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-07-21
+
+Burst dispatch gate + janitor hardening. This delivers the burst dispatch path
+end to end (#14): a lock-free per-job "may this start now, or hold at priority
+0?" decision on the tier-2 read view, per-account burst configuration in
+`obold-config.json`, the `DISPATCH` wire verb, the `obol dispatch` CLI, and a
+reference `site_factor` C plugin. It also closes the submit→start orphan window
+with the unbound-token TTL janitor (#15). Minor bump: additive `DISPATCH` wire
+message and new kernel methods (`MayDispatch`, `SweepUnbound`, `NewDurableBurst`);
+the money ledger and prior behavior are unchanged, and burst stays off unless
+configured.
+
 ### Added
 - Unbound-token TTL janitor (#15): `obold` periodically reclaims escrows minted at
   the gate but never bound to a job id — the submit→start orphan window, where a
@@ -361,7 +373,8 @@ lock-cheap read path (#7), and config durability (#8).
 - Seam design document (`docs/SEAM_DESIGN.md`) describing the Slurm attachment.
 - Project scaffold: CI (race + lint + coverage), release pipeline, governance.
 
-[Unreleased]: https://github.com/scttfrdmn/obol/compare/v0.8.0...HEAD
+[Unreleased]: https://github.com/scttfrdmn/obol/compare/v0.9.0...HEAD
+[0.9.0]: https://github.com/scttfrdmn/obol/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/scttfrdmn/obol/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/scttfrdmn/obol/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/scttfrdmn/obol/compare/v0.5.0...v0.6.0
