@@ -8,6 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Reference `site_factor` burst dispatch plugin (`seam/plugin/obol_site_factor.c`
+  + README): the C plugin the `priority/multifactor` scheduler calls to hold a
+  pending job at priority 0 when it has no burst headroom. It reads the job's
+  token, asks obold `DISPATCH`, and fails open on any error. Shipped as documented
+  compilable reference (not built/tested in CI; the Slurm hook has no Lua binding
+  and can't run in the RPM-based Docker tier) — the tested equivalent is
+  `obol dispatch` / `handleDispatch`. Completes #14.
 - `obol dispatch` (alias `obol may-dispatch`) — the CLI face of the burst dispatch
   query: reports whether a pending job would dispatch now or hold at priority 0,
   with the rate, reservation, and projected pot. Exit 0 = would dispatch, 3 =

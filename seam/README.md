@@ -3,9 +3,12 @@
 The glue between the obol daemon (`obold`) and a running Slurm controller. See
 [`docs/SEAM_DESIGN.md`](../docs/SEAM_DESIGN.md) for the architecture and the "why".
 
-This is the **GATE-only MVP seam**: enough to enforce budgets at submission and
-settle on job exit. The production burst dispatch gate (`site_factor`) is not
-here yet — it needs per-generation cluster validation (v0.3.0).
+This is the **GATE seam** plus a **reference burst dispatch plugin**: the Lua +
+shell pieces enforce budgets at submission and settle on job exit (tested in the
+Docker tier), and `plugin/obol_site_factor.c` is documented reference source for
+the burst dispatch gate. The dispatch *decision* itself is fully implemented and
+tested in the daemon (`obol dispatch` / `handleDispatch`); the C plugin is the
+thin Slurm-side caller, compiled per site against its own Slurm source.
 
 ## Contents
 
@@ -17,6 +20,7 @@ here yet — it needs per-generation cluster validation (v0.3.0).
 | `slurm/obol-prolog.sh` | Prolog: reads the token from `admin_comment` and BINDs token↔jobid at job start. |
 | `slurm/obol-jobcomp.sh` | **jobcomp/script feed (primary settlement):** runs on the controller at every completion and SETTLEs the escrow, mapping Slurm state → complete/timeout/cancel/infrafail. Fires even on node failure (unlike the epilog). |
 | `slurm/obol-epilog.sh` | Epilog: an optional compute-node SETTLE fallback (redundant with jobcomp; uses `settle --if-present` so a double-fire is a no-op). |
+| `plugin/obol_site_factor.c` | **Reference** `site_factor` burst dispatch plugin (C — the hook has no Lua binding). Reads the token, asks obold `DISPATCH`, holds at priority 0 when there's no burst headroom. Not built/tested in CI; see `plugin/README.md`. |
 
 ## Requirements
 
