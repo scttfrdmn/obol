@@ -232,3 +232,26 @@ func TestTopUpBadArgs(t *testing.T) {
 		t.Errorf("topup with zero amount: exit = %d, want 1", code)
 	}
 }
+
+// TestLogVerb drives the log verb: submit+settle a job, then confirm the log
+// renders both transitions.
+func TestLogVerb(t *testing.T) {
+	sock, _ := newDaemon(t)
+
+	// Gate + settle a job so there are transitions to show.
+	code, out, _ := run(sock, "gate", "--account", "default", "--partition", "cloud", "--time-limit", "1000")
+	if code != 0 {
+		t.Fatalf("gate exit %d", code)
+	}
+	tok := strings.TrimSpace(strings.TrimPrefix(out, "allow "))
+	run(sock, "bind", "--token", tok, "--jobid", "9")
+	run(sock, "settle", "--jobid", "9", "--kind", "complete", "--runtime", "100")
+
+	code, out, errOut := run(sock, "log", "--account", "default")
+	if code != 0 {
+		t.Fatalf("log exit %d, stderr=%q", code, errOut)
+	}
+	if !strings.Contains(out, "submit") || !strings.Contains(out, "settle:complete") {
+		t.Errorf("log missing expected transitions:\n%s", out)
+	}
+}

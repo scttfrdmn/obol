@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `obol log` — transaction/audit view (issue #22): renders an account's WAL as a time-ordered
+  list of transitions (submit/start/settle/lapse/topup) with amounts, rates, and runtimes. The WAL
+  is already an append-only audit trail, so this is a read-only render — `budget.Budget.Log()` /
+  `ReadLog` read the WAL file directly (no lock, no live-state replay), the daemon exposes it via a
+  `LOG` wire message, and it is visibility-scoped by peer credentials exactly like `show`/`list`.
+
 ## [0.4.0] - 2026-07-21
 
 Live budget administration with real authorization. `obol topup` adds money to a

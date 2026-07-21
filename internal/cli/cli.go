@@ -35,6 +35,8 @@ func Run(args []string, out, errOut io.Writer) int {
 		return cmdTopUp(rest, out, errOut)
 	case "list":
 		return cmdList(rest, out, errOut)
+	case "log":
+		return cmdLog(rest, out, errOut)
 	case "ping":
 		return cmdPing(rest, out, errOut)
 	case "help", "-h", "--help":
@@ -87,6 +89,7 @@ Usage:
   obol settle  (--jobid J | --token T) --kind KIND [--runtime S] [--elapsed S]
   obol topup   --account A --amount N    add money to an account (admin)
   obol list                              list accounts and balances
+  obol log     [--account A]             render an account's transaction log
   obol ping                              health-check the daemon
 
 Global:

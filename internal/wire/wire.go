@@ -52,6 +52,7 @@ const (
 	KindStatus Kind = "status"
 	KindTopUp  Kind = "topup"
 	KindList   Kind = "list"
+	KindLog    Kind = "log"
 )
 
 // SettleKind names how a job ended, routing to the matching kernel transition.
@@ -200,6 +201,34 @@ type ListResponse struct {
 	Accounts []ListAccount `json:"accounts,omitempty"`
 }
 
+// LogRequest asks for the audit log (WAL render) of an account's budget.
+type LogRequest struct {
+	Account string `json:"account,omitempty"`
+}
+
+// LogEntry is one rendered WAL transition (mirrors budget.LogEntry).
+type LogEntry struct {
+	Kind    string `json:"kind"`
+	JobID   string `json:"jobid,omitempty"`
+	ArrayID string `json:"array,omitempty"`
+	Idx     int    `json:"idx,omitempty"`
+	N       int    `json:"n,omitempty"`
+	Rate    int64  `json:"rate,omitempty"`
+	W       int64  `json:"w,omitempty"`
+	Runtime int64  `json:"runtime,omitempty"`
+	Elapsed int64  `json:"elapsed,omitempty"`
+	Amount  int64  `json:"amount,omitempty"`
+	Now     int64  `json:"now,omitempty"`
+}
+
+// LogResponse carries the audit log for the requested account.
+type LogResponse struct {
+	OK      bool       `json:"ok"`
+	Reason  string     `json:"reason,omitempty"`
+	Account string     `json:"account,omitempty"`
+	Entries []LogEntry `json:"entries,omitempty"`
+}
+
 // Frame is the on-wire envelope. Exactly one of the typed request/response
 // payloads is populated, selected by MsgKind. Version guards against a
 // shim/daemon mismatch.
@@ -214,6 +243,7 @@ type Frame struct {
 	Status *StatusRequest `json:"status,omitempty"`
 	TopUp  *TopUpRequest  `json:"topup,omitempty"`
 	List   *ListRequest   `json:"list,omitempty"`
+	Log    *LogRequest    `json:"log,omitempty"`
 
 	// Responses (one populated per response frame).
 	GateResp   *GateResponse   `json:"gate_resp,omitempty"`
@@ -222,6 +252,7 @@ type Frame struct {
 	StatusResp *StatusResponse `json:"status_resp,omitempty"`
 	TopUpResp  *TopUpResponse  `json:"topup_resp,omitempty"`
 	ListResp   *ListResponse   `json:"list_resp,omitempty"`
+	LogResp    *LogResponse    `json:"log_resp,omitempty"`
 }
 
 // Sentinel errors surfaced by decode. ErrVersion is distinguished so a caller
@@ -317,3 +348,8 @@ func TopUpFrame(account string, amount int64) *Frame {
 
 // ListFrame is a bare list request.
 func ListFrame() *Frame { return &Frame{MsgKind: KindList, List: &ListRequest{}} }
+
+// LogFrame wraps a LogRequest in a request Frame.
+func LogFrame(account string) *Frame {
+	return &Frame{MsgKind: KindLog, Log: &LogRequest{Account: account}}
+}
