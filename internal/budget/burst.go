@@ -59,11 +59,6 @@ func (bd *Budget) burstReserveForRate(c Units, w Seconds) Units {
 	return excess * w
 }
 
-// burstReserveFor is the 1:1 case at the budget's own rate C.
-func (bd *Budget) burstReserveFor(w Seconds) Units {
-	return bd.burstReserveForRate(bd.C, w)
-}
-
 // BurstSnapshot for inspectors / `show`.
 func (bd *Budget) BurstSnapshot(now Seconds) (pot, ceiling, rLive Units) {
 	bd.mu.Lock()

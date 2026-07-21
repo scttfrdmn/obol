@@ -36,20 +36,28 @@ type Clock func() budget.Seconds
 // BIND records the Slurm job id so a SETTLE carrying only the job id resolves
 // back to its escrow.
 type Server struct {
-	bd  *budget.Budget
-	now Clock
+	bd      *budget.Budget
+	now     Clock
+	weights Weights // TRES->rate; zero-value = flat-rate (use bd.C)
 
 	mu         sync.Mutex        // guards jobToToken
 	jobToToken map[string]string // Slurm jobid -> escrow token
 }
 
-// New builds a Server over an existing budget with the given clock. The budget
-// is expected to be durable (NewDurable/OpenBudget) in production, but any
-// *budget.Budget works — the server does not care.
+// New builds a Server over an existing budget with the given clock and flat-rate
+// cost (no TRES weighting). The budget is expected to be durable
+// (NewDurable/OpenBudget) in production, but any *budget.Budget works.
 func New(bd *budget.Budget, now Clock) *Server {
+	return NewWithWeights(bd, now, Weights{})
+}
+
+// NewWithWeights builds a Server that weights job cost by TRES (SEAM_DESIGN §5).
+// Zero-value weights are flat-rate, identical to New.
+func NewWithWeights(bd *budget.Budget, now Clock, w Weights) *Server {
 	return &Server{
 		bd:         bd,
 		now:        now,
+		weights:    w,
 		jobToToken: make(map[string]string),
 	}
 }
@@ -124,10 +132,11 @@ func (s *Server) handleGate(req *wire.GateRequest) *wire.Frame {
 		return gateReject("token mint failed")
 	}
 	now := s.now()
+	c := s.weights.Rate(req.TRES) // 0 in flat-rate mode => kernel uses bd.C
 	if req.NTasks > 1 {
-		err = s.bd.SubmitArray(token, req.NTasks, req.TimeLimit, now)
+		err = s.bd.SubmitArrayAt(token, c, req.NTasks, req.TimeLimit, now)
 	} else {
-		err = s.bd.Submit(token, req.TimeLimit, now)
+		err = s.bd.SubmitAt(token, c, req.TimeLimit, now)
 	}
 	if err != nil {
 		return gateReject(err.Error())

@@ -230,3 +230,43 @@ func TestCleanShutdown(t *testing.T) {
 		t.Errorf("Serve returned %v on clean shutdown, want nil", err)
 	}
 }
+
+// TestGateTRESWeightedCost confirms a gate with TRES escrows the weighted cost
+// (rate = Σ tres×weight), not the budget's flat rate.
+func TestGateTRESWeightedCost(t *testing.T) {
+	dir := t.TempDir()
+	bd, err := budget.NewDurable(dir, 1, 1_000_000, 0, 1_000_000, false) // flat C=1
+	if err != nil {
+		t.Fatal(err)
+	}
+	clk := &testClock{}
+	clk.set(10)
+	// GPU-heavy weights: 1/cpu-s + 100/gpu-s.
+	srv := NewWithWeights(bd, clk.now, Weights{PerCPU: 1, PerGPU: 100})
+	ln, err := net.Listen("unix", filepath.Join(dir, "obold.sock"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	go func() { _ = srv.Serve(ln) }()
+	t.Cleanup(func() { _ = ln.Close(); _ = bd.Close() })
+
+	dial := func() net.Conn {
+		c, e := net.Dial("unix", ln.Addr().String())
+		if e != nil {
+			t.Fatal(e)
+		}
+		return c
+	}
+
+	// 8 CPUs + 2 GPUs => rate = 8 + 200 = 208; w=100 => cost 20800.
+	resp := call(t, dial, wire.GateFrame(&wire.GateRequest{
+		Account: "lab", Partition: "cloud", TimeLimit: 100, NTasks: 1,
+		TRES: wire.TRES{CPUs: 8, GPUs: 2},
+	}))
+	if resp.GateResp == nil || !resp.GateResp.Allow {
+		t.Fatalf("gate rejected: %+v", resp.GateResp)
+	}
+	if bal := bd.Balance(); bal != 1_000_000-20800 {
+		t.Errorf("weighted escrow wrong: balance = %d, want %d", bal, 1_000_000-20800)
+	}
+}

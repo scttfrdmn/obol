@@ -43,8 +43,17 @@ func (bd *Budget) ensureArrays() {
 	}
 }
 
-// SubmitArray is the array gate: all-or-nothing debit of N*c*w under one lock.
+// SubmitArray is the array gate at the budget's flat rate bd.C. It is the
+// c==bd.C case of SubmitArrayAt.
 func (bd *Budget) SubmitArray(arrayID string, n int, w Seconds, now Seconds) error {
+	return bd.SubmitArrayAt(arrayID, 0, n, w, now) // c<=0 => use bd.C
+}
+
+// SubmitArrayAt is the array gate with a per-array cost rate c (units/second):
+// all-or-nothing debit of N*c*w under one lock. c<=0 falls back to bd.C. The
+// rate is frozen into the ArrayEscrow and logged, so per-task settle and WAL
+// replay all use the same c.
+func (bd *Budget) SubmitArrayAt(arrayID string, c Seconds, n int, w Seconds, now Seconds) error {
 	bd.mu.Lock()
 	defer bd.mu.Unlock()
 	defer bd.publishLocked() // refresh tier-2 read view
@@ -62,21 +71,24 @@ func (bd *Budget) SubmitArray(arrayID string, n int, w Seconds, now Seconds) err
 	if n <= 0 || w <= 0 {
 		return ErrBadState
 	}
-	cost := bd.C * w * Units(n) // N*c*w
-	if cost > bd.B {            // solvency, whole array
+	if c <= 0 {
+		c = bd.C
+	}
+	cost := c * w * Units(n) // N*c*w
+	if cost > bd.B {         // solvency, whole array
 		return ErrInsufficient
 	}
 	if !bd.rateOK(cost, now) { // burst ceiling sees the whole array's cost
 		return ErrRateExceeded
 	}
-	if err := bd.logCmd(Command{Kind: KindSubmitArray, ArrayID: arrayID, N: n, W: w, Now: now}); err != nil {
+	if err := bd.logCmd(Command{Kind: KindSubmitArray, ArrayID: arrayID, C: c, N: n, W: w, Now: now}); err != nil {
 		return err
 	}
 	bd.B -= cost
 	bd.ReservedTotal += cost
 
 	ae := &ArrayEscrow{
-		ArrayID: arrayID, C: bd.C, W: w, N: n, Remaining: n,
+		ArrayID: arrayID, C: c, W: w, N: n, Remaining: n,
 		Reserved: cost, tasks: make(map[int]*taskState, n),
 	}
 	for i := 0; i < n; i++ {
