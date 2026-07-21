@@ -193,3 +193,42 @@ func TestBadArgs(t *testing.T) {
 		t.Errorf("unknown verb: exit = %d, want 2", code)
 	}
 }
+
+// TestTopUpAndListVerbs drives the topup and list verbs against a single-budget
+// daemon (admin enforcement off, so topup is allowed). Confirms topup raises the
+// balance and list shows the account.
+func TestTopUpAndListVerbs(t *testing.T) {
+	sock, bd := newDaemon(t)
+
+	// topup default by 5000.
+	code, out, errOut := run(sock, "topup", "--account", "default", "--amount", "5000")
+	if code != 0 {
+		t.Fatalf("topup exit %d, stderr=%q", code, errOut)
+	}
+	if !strings.Contains(out, "105000") { // 100000 + 5000
+		t.Errorf("topup out = %q, want new balance 105000", out)
+	}
+	if bd.Balance() != 105000 {
+		t.Errorf("balance after topup = %d, want 105000", bd.Balance())
+	}
+
+	// list shows the account and its balance.
+	code, out, errOut = run(sock, "list")
+	if code != 0 {
+		t.Fatalf("list exit %d, stderr=%q", code, errOut)
+	}
+	if !strings.Contains(out, "default") || !strings.Contains(out, "105000") {
+		t.Errorf("list out missing account/balance:\n%s", out)
+	}
+}
+
+// TestTopUpBadArgs confirms topup requires an account and a positive amount.
+func TestTopUpBadArgs(t *testing.T) {
+	sock, _ := newDaemon(t)
+	if code, _, _ := run(sock, "topup", "--amount", "100"); code != 1 {
+		t.Errorf("topup w/o account: exit = %d, want 1", code)
+	}
+	if code, _, _ := run(sock, "topup", "--account", "default", "--amount", "0"); code != 1 {
+		t.Errorf("topup with zero amount: exit = %d, want 1", code)
+	}
+}

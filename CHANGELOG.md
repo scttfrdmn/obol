@@ -8,6 +8,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `obol topup` / `obol list` + peer-credential authorization (issue #59): the daemon gains
+  `TOPUP` (admin-only, adds money to a live account) and `LIST` (enumerate visible accounts) wire
+  messages. **Management commands are now authorized by the connection's kernel-verified peer
+  identity** (`SO_PEERCRED` on Linux; the spoofable wire `uid` is never used for authz). Mutating
+  verbs (topup) require an admin — configured `admin_users`/`admin_groups`, or root — and read
+  verbs (`show`/`list`) are visibility-scoped: admins see all, others see accounts they belong to
+  plus open budgets. When no admin list is configured, enforcement is off (socket permissions are
+  the boundary), preserving prior behavior. New dependency: `golang.org/x/sys` (peer creds; no
+  portable stdlib equivalent).
 - Budget `TopUp(amount, now)` kernel transition (issue #59): adds money to a live budget by
   raising **both** the balance `B` and the allocation anchor `B0`, so conservation holds exactly.
   Add-only (positive amount), works regardless of lifecycle status (an admin action, not a

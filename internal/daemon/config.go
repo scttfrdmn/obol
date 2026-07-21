@@ -14,6 +14,14 @@ import (
 // tree and no rollup — each account conserves on its own.
 type Config struct {
 	Accounts []AccountConfig `json:"accounts"`
+
+	// Admins may run mutating management commands (topup; later create/move). The
+	// check uses the connection's KERNEL-VERIFIED peer uid/gid (SO_PEERCRED), not
+	// the wire uid. root (uid 0) is always an admin. When both lists are empty,
+	// admin enforcement is OFF — the socket's file permissions are the boundary,
+	// preserving pre-authz behavior. Setting either turns enforcement on.
+	AdminUsers  []string `json:"admin_users,omitempty"`
+	AdminGroups []string `json:"admin_groups,omitempty"`
 }
 
 // AccountConfig describes one account's budget and optional access restriction.

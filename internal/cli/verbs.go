@@ -159,6 +159,61 @@ func cmdSettle(args []string, out, errOut io.Writer) int {
 	return 0
 }
 
+// cmdTopUp adds money to an account's budget (admin-only, enforced daemon-side
+// by peer credentials).
+func cmdTopUp(args []string, out, errOut io.Writer) int {
+	fs := flag.NewFlagSet("topup", flag.ContinueOnError)
+	fs.SetOutput(errOut)
+	socket := socketFlag(fs)
+	account := fs.String("account", "", "account to top up")
+	amount := fs.Int64("amount", 0, "amount to add (positive)")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if *account == "" || *amount <= 0 {
+		return fail(errOut, fmt.Errorf("--account and a positive --amount are required"))
+	}
+	resp, err := roundTrip(*socket, wire.TopUpFrame(*account, *amount))
+	if err != nil {
+		return fail(errOut, err)
+	}
+	if resp.TopUpResp == nil || !resp.TopUpResp.OK {
+		r := "empty response"
+		if resp.TopUpResp != nil {
+			r = resp.TopUpResp.Reason
+		}
+		return fail(errOut, fmt.Errorf("topup rejected: %s", r))
+	}
+	pf(out, "ok: %s balance %d (allocation %d)\n", *account, resp.TopUpResp.NewBalance, resp.TopUpResp.NewB0)
+	return 0
+}
+
+// cmdList prints the accounts the caller may see and their balances.
+func cmdList(args []string, out, errOut io.Writer) int {
+	fs := flag.NewFlagSet("list", flag.ContinueOnError)
+	fs.SetOutput(errOut)
+	socket := socketFlag(fs)
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	resp, err := roundTrip(*socket, wire.ListFrame())
+	if err != nil {
+		return fail(errOut, err)
+	}
+	if resp.ListResp == nil || !resp.ListResp.OK {
+		return fail(errOut, fmt.Errorf("list failed"))
+	}
+	pf(out, "%-20s %12s %12s %8s %s\n", "ACCOUNT", "BALANCE", "ALLOCATION", "LIVE", "STATUS")
+	for _, a := range resp.ListResp.Accounts {
+		status := "active"
+		if a.Lapsed {
+			status = "lapsed"
+		}
+		pf(out, "%-20s %12d %12d %8d %s\n", a.Account, a.B, a.B0, a.Live, status)
+	}
+	return 0
+}
+
 // --- small formatting/parsing helpers ---
 
 func parseSettleKind(s string) (wire.SettleKind, error) {
