@@ -52,6 +52,8 @@ func TestRoundTrip(t *testing.T) {
 		{"transfer", TransferFrame(&TransferRequest{From: "a", To: "b", Amount: 500})},
 		{"transfer-all", TransferFrame(&TransferRequest{From: "a", To: "b", All: true})},
 		{"transfer-resp", &Frame{MsgKind: KindTransfer, TransferResp: &TransferResponse{OK: true, Moved: 500, FromBalance: 100, ToBalance: 600}}},
+		{"dispatch", DispatchFrame(&DispatchRequest{Account: "lab", Partition: "p", TimeLimit: 100})},
+		{"dispatch-resp", &Frame{MsgKind: KindDispatch, DispatchResp: &DispatchResponse{OK: true, Account: "lab", Rate: 2, RateSource: "flat", Dispatch: false, Hold: "insufficient burst headroom", Reserve: 500, Pot: 100}}},
 		{"ping", PingFrame()},
 	}
 	for _, tc := range cases {
@@ -127,6 +129,14 @@ func assertFrameEqual(t *testing.T, want, got *Frame) {
 	case want.TransferResp != nil:
 		if got.TransferResp == nil || *got.TransferResp != *want.TransferResp {
 			t.Errorf("transfer_resp: got %+v, want %+v", got.TransferResp, want.TransferResp)
+		}
+	case want.Dispatch != nil:
+		if got.Dispatch == nil || *got.Dispatch != *want.Dispatch {
+			t.Errorf("dispatch: got %+v, want %+v", got.Dispatch, want.Dispatch)
+		}
+	case want.DispatchResp != nil:
+		if got.DispatchResp == nil || *got.DispatchResp != *want.DispatchResp {
+			t.Errorf("dispatch_resp: got %+v, want %+v", got.DispatchResp, want.DispatchResp)
 		}
 	}
 }

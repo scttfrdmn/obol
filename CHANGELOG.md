@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `DISPATCH` wire message + daemon `handleDispatch`: the burst dispatch query the
+  `site_factor` plugin needs ("may this pending job start now, or hold at priority
+  0?"). Read-only, visibility-scoped, resolves the job's rate like the gate, and
+  answers lock-free via `MayDispatch` — the tier-2 hot path (#14).
 - Burst is now configurable per account in `obold-config.json`: `burst_enabled`,
   `burst_ceiling_pct` (0–1, pot ceiling as a fraction of the allocation), and
   `burst_draw_cap` (max tokens one job may reserve). Enabling burst lets jobs bank
