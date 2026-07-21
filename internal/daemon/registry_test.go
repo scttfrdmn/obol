@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"net"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -68,7 +69,15 @@ func TestRegistryResolveAndRecover(t *testing.T) {
 func serveReg(t *testing.T, reg *Registry) func() net.Conn {
 	t.Helper()
 	srv := NewWithRegistry(reg, testNow, Weights{})
-	sock := filepath.Join(t.TempDir(), "obold.sock")
+	// Keep the socket path SHORT: sockaddr_un caps at ~104 bytes, and a long test
+	// name under t.TempDir()'s nested path overflows it. A shallow MkdirTemp dir
+	// stays well under the limit.
+	sockDir, err := os.MkdirTemp("", "obol")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(sockDir) })
+	sock := filepath.Join(sockDir, "s")
 	ln, err := net.Listen("unix", sock)
 	if err != nil {
 		t.Fatal(err)
