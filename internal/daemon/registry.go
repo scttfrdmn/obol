@@ -78,6 +78,14 @@ func NewRegistry(cfg *Config, stateDir string, sync bool, now nowFunc) (*Registr
 			return nil, fmt.Errorf("account %q: %w", a.Name, err)
 		}
 	}
+	// (3) Complete any transfer interrupted by a crash (obol transfer). Runs after
+	// every account is loaded so both legs' budgets are present; single-threaded.
+	if r.stateDir != "" {
+		if err := r.recoverTransfers(); err != nil {
+			_ = r.Close()
+			return nil, fmt.Errorf("transfer recovery: %w", err)
+		}
+	}
 	return r, nil
 }
 

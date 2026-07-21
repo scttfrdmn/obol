@@ -550,6 +550,45 @@ func cmdAttach(args []string, out, errOut io.Writer, detach bool) int {
 	return 0
 }
 
+// cmdTransfer moves money from one account to another (admin-gated daemon-side).
+// Exactly one of --amount or --all selects how much.
+func cmdTransfer(args []string, out, errOut io.Writer) int {
+	fs := flag.NewFlagSet("transfer", flag.ContinueOnError)
+	fs.SetOutput(errOut)
+	socket := socketFlag(fs)
+	from := fs.String("from", "", "source account")
+	to := fs.String("to", "", "destination account")
+	amount := fs.Int64("amount", 0, "amount to move (positive); mutually exclusive with --all")
+	all := fs.Bool("all", false, "move the source's entire available balance")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if *from == "" || *to == "" {
+		return fail(errOut, fmt.Errorf("--from and --to are required"))
+	}
+	if *all == (*amount > 0) { // neither, or both
+		return fail(errOut, fmt.Errorf("provide exactly one of --amount (positive) or --all"))
+	}
+	resp, err := roundTrip(*socket, wire.TransferFrame(&wire.TransferRequest{
+		From: *from, To: *to, Amount: *amount, All: *all,
+	}))
+	if err != nil {
+		return fail(errOut, err)
+	}
+	r := resp.TransferResp
+	if r == nil || !r.OK {
+		reason := "empty response"
+		if r != nil {
+			reason = r.Reason
+		}
+		pf(out, "reject: %s\n", reason)
+		return 3
+	}
+	pf(out, "moved %d: %s → %s (%s now %d, %s now %d)\n",
+		r.Moved, *from, *to, *from, r.FromBalance, *to, r.ToBalance)
+	return 0
+}
+
 // --- small formatting/parsing helpers ---
 
 func parseSettleKind(s string) (wire.SettleKind, error) {

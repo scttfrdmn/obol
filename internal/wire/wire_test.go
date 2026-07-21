@@ -49,6 +49,9 @@ func TestRoundTrip(t *testing.T) {
 		{"create", CreateFrame(&CreateRequest{Account: "lab2", Balance: 5000, Rate: 2})},
 		{"attach", AttachFrame(&AttachRequest{Account: "lab2", Users: []string{"alice"}})},
 		{"attach-resp", &Frame{MsgKind: KindAttach, AttachResp: &AttachResponse{OK: true}}},
+		{"transfer", TransferFrame(&TransferRequest{From: "a", To: "b", Amount: 500})},
+		{"transfer-all", TransferFrame(&TransferRequest{From: "a", To: "b", All: true})},
+		{"transfer-resp", &Frame{MsgKind: KindTransfer, TransferResp: &TransferResponse{OK: true, Moved: 500, FromBalance: 100, ToBalance: 600}}},
 		{"ping", PingFrame()},
 	}
 	for _, tc := range cases {
@@ -116,6 +119,14 @@ func assertFrameEqual(t *testing.T, want, got *Frame) {
 	case want.AckResp != nil:
 		if got.AckResp == nil || *got.AckResp != *want.AckResp {
 			t.Errorf("ack_resp: got %+v, want %+v", got.AckResp, want.AckResp)
+		}
+	case want.Transfer != nil:
+		if got.Transfer == nil || *got.Transfer != *want.Transfer {
+			t.Errorf("transfer: got %+v, want %+v", got.Transfer, want.Transfer)
+		}
+	case want.TransferResp != nil:
+		if got.TransferResp == nil || *got.TransferResp != *want.TransferResp {
+			t.Errorf("transfer_resp: got %+v, want %+v", got.TransferResp, want.TransferResp)
 		}
 	}
 }

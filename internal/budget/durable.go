@@ -87,6 +87,10 @@ func (bd *Budget) Snapshot() error {
 	return saveSnapshot(bd.dir, bd.captureSnapshot(off))
 }
 
+// Dir returns the budget's state directory (empty for a non-durable budget). The
+// daemon uses it to locate a budget's WAL for transfer recovery (obol transfer).
+func (bd *Budget) Dir() string { return bd.dir }
+
 // Close releases the WAL file handle. Safe to call on a non-durable budget.
 func (bd *Budget) Close() error {
 	if bd.wal != nil {

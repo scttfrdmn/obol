@@ -398,6 +398,50 @@ func TestCreateAndAttachVerbs(t *testing.T) {
 	}
 }
 
+// TestTransferVerb drives obol transfer between two accounts and confirms both
+// balances move and the CLI reports them.
+func TestTransferVerb(t *testing.T) {
+	sock := newMultiDaemon(t, &daemon.Config{Accounts: []daemon.AccountConfig{
+		{Name: "lab_a", Balance: 10000, Rate: 1, Window: "1000000s"},
+		{Name: "lab_b", Balance: 2000, Rate: 1, Window: "1000000s"},
+	}})
+
+	code, out, errOut := run(sock, "transfer", "--from", "lab_a", "--to", "lab_b", "--amount", "3000")
+	if code != 0 {
+		t.Fatalf("transfer exit %d, stderr=%q", code, errOut)
+	}
+	if !strings.Contains(out, "moved 3000") || !strings.Contains(out, "7000") || !strings.Contains(out, "5000") {
+		t.Errorf("transfer out = %q, want moved 3000 with balances 7000/5000", out)
+	}
+
+	// --all sweeps the remaining available balance of lab_a.
+	if code, out, _ := run(sock, "transfer", "--from", "lab_a", "--to", "lab_b", "--all"); code != 0 || !strings.Contains(out, "moved 7000") {
+		t.Errorf("transfer --all: exit %d out=%q, want moved 7000", code, out)
+	}
+}
+
+// TestTransferBadArgs covers required-arg and mutual-exclusion validation, plus a
+// clean reject (exit 3) for an over-balance move.
+func TestTransferBadArgs(t *testing.T) {
+	sock := newMultiDaemon(t, &daemon.Config{Accounts: []daemon.AccountConfig{
+		{Name: "lab_a", Balance: 100, Rate: 1, Window: "1000000s"},
+		{Name: "lab_b", Balance: 100, Rate: 1, Window: "1000000s"},
+	}})
+	if code, _, _ := run(sock, "transfer", "--to", "lab_b", "--amount", "1"); code != 1 {
+		t.Errorf("transfer w/o --from: exit %d, want 1", code)
+	}
+	if code, _, _ := run(sock, "transfer", "--from", "lab_a", "--to", "lab_b"); code != 1 {
+		t.Errorf("transfer w/o amount or --all: exit %d, want 1", code)
+	}
+	if code, _, _ := run(sock, "transfer", "--from", "lab_a", "--to", "lab_b", "--amount", "5", "--all"); code != 1 {
+		t.Errorf("transfer with both --amount and --all: exit %d, want 1", code)
+	}
+	// Over-balance is a clean daemon reject → exit 3 (distinct from usage/transport).
+	if code, out, _ := run(sock, "transfer", "--from", "lab_a", "--to", "lab_b", "--amount", "99999"); code != 3 || !strings.Contains(out, "reject") {
+		t.Errorf("over-balance transfer: exit %d out=%q, want exit 3 reject", code, out)
+	}
+}
+
 // TestCreateAttachBadArgs covers required-arg validation.
 func TestCreateAttachBadArgs(t *testing.T) {
 	sock, _ := newDaemon(t)

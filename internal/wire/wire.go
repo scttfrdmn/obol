@@ -59,6 +59,7 @@ const (
 	KindSimulate  Kind = "simulate"
 	KindCreate    Kind = "create"
 	KindAttach    Kind = "attach"
+	KindTransfer  Kind = "transfer"
 )
 
 // SettleKind names how a job ended, routing to the matching kernel transition.
@@ -304,6 +305,26 @@ type AttachResponse struct {
 	AllowGroups []string `json:"allow_groups,omitempty"`
 }
 
+// TransferRequest moves money from one account budget to another (admin-only).
+// Exactly one of Amount (>0) or All is used; All moves the source's entire
+// available balance. The move is journaled so it is atomic across a crash.
+type TransferRequest struct {
+	From   string `json:"from"`
+	To     string `json:"to"`
+	Amount int64  `json:"amount,omitempty"`
+	All    bool   `json:"all,omitempty"`
+}
+
+// TransferResponse acknowledges a transfer with the amount moved and both
+// resulting balances.
+type TransferResponse struct {
+	OK          bool   `json:"ok"`
+	Reason      string `json:"reason,omitempty"`
+	Moved       int64  `json:"moved,omitempty"`
+	FromBalance int64  `json:"from_balance,omitempty"`
+	ToBalance   int64  `json:"to_balance,omitempty"`
+}
+
 // LogRequest asks for the audit log (WAL render) of an account's budget.
 type LogRequest struct {
 	Account string `json:"account,omitempty"`
@@ -356,6 +377,7 @@ type Frame struct {
 	Simulate  *SimulateRequest  `json:"simulate,omitempty"`
 	Create    *CreateRequest    `json:"create,omitempty"`
 	Attach    *AttachRequest    `json:"attach,omitempty"`
+	Transfer  *TransferRequest  `json:"transfer,omitempty"`
 
 	// Responses (one populated per response frame).
 	GateResp     *GateResponse     `json:"gate_resp,omitempty"`
@@ -369,6 +391,7 @@ type Frame struct {
 	ResolveResp  *ResolveResponse  `json:"resolve_resp,omitempty"`
 	SimulateResp *SimulateResponse `json:"simulate_resp,omitempty"`
 	AttachResp   *AttachResponse   `json:"attach_resp,omitempty"`
+	TransferResp *TransferResponse `json:"transfer_resp,omitempty"`
 }
 
 // Sentinel errors surfaced by decode. ErrVersion is distinguished so a caller
@@ -501,3 +524,8 @@ func CreateFrame(req *CreateRequest) *Frame { return &Frame{MsgKind: KindCreate,
 
 // AttachFrame wraps an AttachRequest in a request Frame.
 func AttachFrame(req *AttachRequest) *Frame { return &Frame{MsgKind: KindAttach, Attach: req} }
+
+// TransferFrame wraps a TransferRequest in a request Frame.
+func TransferFrame(req *TransferRequest) *Frame {
+	return &Frame{MsgKind: KindTransfer, Transfer: req}
+}
