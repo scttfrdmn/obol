@@ -143,6 +143,8 @@ func (s *Server) dispatch(req *wire.Frame, peer PeerCred) *wire.Frame {
 		return s.handleSetWindow(req.SetWindow, peer)
 	case wire.KindResolve:
 		return s.handleResolve(req.Resolve, peer)
+	case wire.KindSimulate:
+		return s.handleSimulate(req.Simulate, peer)
 	case wire.KindPing:
 		return wire.PingFrame() // echo: liveness only
 	default:
@@ -474,15 +476,7 @@ func (s *Server) handleResolve(req *wire.ResolveRequest, peer PeerCred) *wire.Fr
 
 	st := bd.Report(s.now())
 	resp.Balance = st.B
-
-	// Effective rate + its source, mirroring handleGate's precedence.
-	if r := s.nodeCost.worstRate(req.Partition); r > 0 {
-		resp.Rate, resp.RateSource = r, "node-type worst-case"
-	} else if r := s.weights.Rate(req.TRES); r > 0 {
-		resp.Rate, resp.RateSource = r, "tres"
-	} else {
-		resp.Rate, resp.RateSource = st.C, "flat"
-	}
+	resp.Rate, resp.RateSource = s.effectiveRate(req.Partition, req.TRES, bd, s.now())
 
 	// Access verdict (does not escrow).
 	authorized, areason := s.authorize(req.Account, req.UID)
@@ -514,6 +508,43 @@ func (s *Server) handleResolve(req *wire.ResolveRequest, peer PeerCred) *wire.Fr
 		}
 	}
 	return &wire.Frame{MsgKind: wire.KindResolve, ResolveResp: resp}
+}
+
+// effectiveRate returns the per-second rate the gate would use for a submission
+// and a human label for its source, mirroring handleGate's precedence: node-type
+// worst-case (if the partition has node types), else TRES weighting, else the
+// budget's flat C.
+func (s *Server) effectiveRate(partition string, tres wire.TRES, bd *budget.Budget, now budget.Seconds) (budget.Units, string) {
+	if r := s.nodeCost.worstRate(partition); r > 0 {
+		return r, "node-type worst-case"
+	}
+	if r := s.weights.Rate(tres); r > 0 {
+		return r, "tres"
+	}
+	return bd.Report(now).C, "flat"
+}
+
+// handleSimulate dry-runs a hypothetical submission: cost, funding, runway, and
+// the gate verdict — committing nothing. Read verb: visibility-scoped.
+func (s *Server) handleSimulate(req *wire.SimulateRequest, peer PeerCred) *wire.Frame {
+	if req == nil {
+		return simulateReject("empty simulate request")
+	}
+	bd, err := s.reg.Resolve(req.Account)
+	if err != nil {
+		return simulateReject(err.Error())
+	}
+	if !s.canRead(req.Account, peer) {
+		return simulateReject("not authorized to view account " + req.Account)
+	}
+	now := s.now()
+	rate, source := s.effectiveRate(req.Partition, req.TRES, bd, now)
+	sim := bd.Simulate(rate, req.TimeLimit, now)
+	return &wire.Frame{MsgKind: wire.KindSimulate, SimulateResp: &wire.SimulateResponse{
+		OK: true, Account: req.Account, Rate: rate, RateSource: source,
+		Cost: sim.Cost, Balance: bd.Report(now).B, Admit: sim.Admit,
+		Deny: sim.Reason, Runway: sim.Runway,
+	}}
 }
 
 // mintToken returns a unique, unforgeable correlation token. The "budget:" prefix
@@ -552,4 +583,8 @@ func ackReject(reason string) *wire.Frame {
 
 func resolveReject(reason string) *wire.Frame {
 	return &wire.Frame{MsgKind: wire.KindResolve, ResolveResp: &wire.ResolveResponse{OK: false, Reason: reason}}
+}
+
+func simulateReject(reason string) *wire.Frame {
+	return &wire.Frame{MsgKind: wire.KindSimulate, SimulateResp: &wire.SimulateResponse{OK: false, Reason: reason}}
 }

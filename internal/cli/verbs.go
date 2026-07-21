@@ -421,6 +421,51 @@ func cmdResolve(args []string, out, errOut io.Writer) int {
 	return 0
 }
 
+// cmdSimulate reports whether a hypothetical job would fund now, its cost, and
+// the budget's projected runway — committing nothing.
+func cmdSimulate(args []string, out, errOut io.Writer) int {
+	fs := flag.NewFlagSet("simulate", flag.ContinueOnError)
+	fs.SetOutput(errOut)
+	socket := socketFlag(fs)
+	account := fs.String("account", "", "account")
+	partition := fs.String("partition", "", "partition (for node-type pricing)")
+	timeLimit := fs.Int64("time-limit", 0, "walltime seconds")
+	cpus := fs.Int64("cpus", 0, "requested CPUs (for TRES pricing)")
+	gpus := fs.Int64("gpus", 0, "requested GPUs")
+	mem := fs.Int64("mem", 0, "requested memory MB")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if *account == "" || *timeLimit <= 0 {
+		return fail(errOut, fmt.Errorf("--account and a positive --time-limit are required"))
+	}
+	resp, err := roundTrip(*socket, wire.SimulateFrame(&wire.SimulateRequest{
+		Account: *account, Partition: *partition, TimeLimit: *timeLimit,
+		TRES: wire.TRES{CPUs: *cpus, GPUs: *gpus, Mem: *mem},
+	}))
+	if err != nil {
+		return fail(errOut, err)
+	}
+	r := resp.SimulateResp
+	if r == nil {
+		return fail(errOut, fmt.Errorf("empty simulate response"))
+	}
+	if !r.OK {
+		return fail(errOut, fmt.Errorf("%s", r.Reason))
+	}
+	pf(out, "Account:  %s\n", r.Account)
+	pf(out, "Rate:     %d/s (%s)\n", r.Rate, r.RateSource)
+	pf(out, "Cost:     %d\n", r.Cost)
+	pf(out, "Balance:  %d\n", r.Balance)
+	pf(out, "Runway:   %s\n", fmtTTE(r.Runway))
+	if r.Admit {
+		pf(out, "Verdict:  WOULD FUND\n")
+		return 0
+	}
+	pf(out, "Verdict:  WOULD NOT FUND (%s)\n", r.Deny)
+	return 3
+}
+
 // --- small formatting/parsing helpers ---
 
 func parseSettleKind(s string) (wire.SettleKind, error) {

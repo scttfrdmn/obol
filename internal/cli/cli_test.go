@@ -319,3 +319,31 @@ func TestResolveVerb(t *testing.T) {
 	// the back-compat rule — so unknown-account rejection is covered by the
 	// multi-account daemon test, not here.)
 }
+
+// TestSimulateVerb drives simulate against the single-budget daemon (balance
+// 100000, rate 1): a funded job reports WOULD FUND (exit 0), an over-budget one
+// WOULD NOT FUND (exit 3).
+func TestSimulateVerb(t *testing.T) {
+	sock, _ := newDaemon(t)
+
+	code, out, errOut := run(sock, "simulate", "--account", "default", "--time-limit", "100")
+	if code != 0 {
+		t.Fatalf("simulate exit %d, stderr=%q", code, errOut)
+	}
+	for _, want := range []string{"WOULD FUND", "Cost:", "Runway:"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("simulate output missing %q:\n%s", want, out)
+		}
+	}
+	if code, out, _ := run(sock, "simulate", "--account", "default", "--time-limit", "200000"); code != 3 {
+		t.Errorf("over-budget simulate exit = %d, want 3\n%s", code, out)
+	}
+	// estimate is an alias.
+	if code, _, _ := run(sock, "estimate", "--account", "default", "--time-limit", "100"); code != 0 {
+		t.Errorf("estimate alias exit = %d, want 0", code)
+	}
+	// Missing time-limit is a usage error.
+	if code, _, _ := run(sock, "simulate", "--account", "default"); code != 1 {
+		t.Errorf("simulate w/o time-limit exit = %d, want 1", code)
+	}
+}
