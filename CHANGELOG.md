@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Per-account budgets + resolution (issue #18): obold now holds a **registry of independent
+  budgets, one per Slurm account** (`obold -config <json>`), each with its own WAL+snapshot dir.
+  A submission's `--account` resolves to exactly that account's budget (exact match; no rollup —
+  the #17 account-tree chain-debit was superseded by this flat model, with cross-budget spend
+  tracked as a future feature #54). Unknown account → reject (SEAM §9). `obol show --account`
+  selects one; `STATUS` gains an additive `Account` field. The kernel is **untouched** — each
+  account conserves independently via the existing single-pot invariant.
+- Optional per-account access enforcement: access defaults to **trusting Slurm** (slurmdbd already
+  authorizes account membership); an account may set `allow_users`/`allow_groups` to further
+  restrict, in which case obol resolves the submitter's uid→user/groups (via the OS, cached) and
+  checks it — only incurred for restricted accounts, keeping the gate hot path lookup-free by
+  default. `obold` without `-config` keeps the single-budget behavior unchanged.
+
 ## [0.2.0] - 2026-07-21
 
 Gen 1 integration. The cost model now weights job cost by requested TRES, and a

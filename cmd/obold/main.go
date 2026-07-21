@@ -33,7 +33,8 @@ func main() {
 	fs := flag.NewFlagSet("obold", flag.ExitOnError)
 	var cfg config
 	fs.StringVar(&cfg.sock, "socket", "/run/obol/obold.sock", "path to the Unix listen socket")
-	fs.StringVar(&cfg.dir, "state-dir", "/var/lib/obol", "budget state directory (WAL + snapshot)")
+	fs.StringVar(&cfg.dir, "state-dir", "/var/lib/obol", "budget state directory (per-account WAL + snapshot)")
+	fs.StringVar(&cfg.configPath, "config", "", "multi-account config (JSON); omit for the single-budget flags below")
 	fs.BoolVar(&cfg.sync, "sync", true, "fdatasync the WAL on every append (production: true)")
 	// Bootstrap parameters, used only when the state dir has no snapshot yet.
 	fs.BoolVar(&cfg.create, "create", false, "create a fresh budget if none exists in -state-dir")
@@ -57,23 +58,27 @@ func main() {
 // config holds the parsed obold flags.
 type config struct {
 	sock, dir    string
+	configPath   string
 	sync, create bool
 	rate, b0     int64
 	window       time.Duration
 	weights      daemon.Weights
 }
 
-// run opens/creates the budget, binds the socket, and serves until signalled.
-// Returning errors (rather than log.Fatal-ing inline) lets deferred cleanup run.
+// nowClock is the daemon's wall clock as epoch seconds, fed into transitions so
+// the kernel stays clock-free.
+func nowClock() budget.Seconds { return time.Now().Unix() }
+
+// run builds the budget registry (multi-account via -config, else a single
+// budget from the flags), binds the socket, and serves until signalled.
 func run(cfg config) error {
-	bd, err := openOrCreate(cfg.dir, cfg.sync, cfg.create, cfg.rate, cfg.b0, cfg.window)
+	reg, err := buildRegistry(cfg)
 	if err != nil {
 		return err
 	}
-	defer func() { _ = bd.Close() }()
+	defer func() { _ = reg.Close() }()
 
-	// The daemon supplies now from its own clock; the kernel stays clock-free.
-	srv := daemon.NewWithWeights(bd, func() budget.Seconds { return time.Now().Unix() }, cfg.weights)
+	srv := daemon.NewWithRegistry(reg, nowClock, cfg.weights)
 
 	if err := os.MkdirAll(filepath.Dir(cfg.sock), 0o750); err != nil {
 		return fmt.Errorf("socket dir: %w", err)
@@ -100,22 +105,30 @@ func run(cfg config) error {
 	return nil
 }
 
-// openOrCreate recovers an existing budget from dir, or creates a fresh one when
-// -create is set and no snapshot exists. Without -create, a missing budget is a
-// fatal misconfiguration rather than a silent empty budget.
-//
-// A freshly created budget's window is [now, now+window): it must be anchored to
-// the same clock the server feeds transitions (epoch seconds), or every gate
-// would see now >= TE and reject as lapsed.
-func openOrCreate(dir string, sync, create bool, rate, b0 int64, window time.Duration) (*budget.Budget, error) {
-	bd, err := budget.OpenBudget(dir, sync)
-	if err == nil {
-		return bd, nil
+// buildRegistry constructs the budget registry. With -config it loads the
+// multi-account config and opens/creates a budget per account under
+// <state-dir>/<name>/. Without -config it falls back to the single-budget flags
+// (one account named "default"), preserving all pre-multi-account behavior.
+func buildRegistry(cfg config) (*daemon.Registry, error) {
+	if cfg.configPath != "" {
+		c, err := daemon.LoadConfig(cfg.configPath)
+		if err != nil {
+			return nil, err
+		}
+		return daemon.NewRegistry(c, cfg.dir, cfg.sync, nowClock)
 	}
-	if !create {
-		return nil, fmt.Errorf("open budget in %s: %w (pass -create to bootstrap)", dir, err)
+	// Single-budget back-compat: synthesize a one-account config named "default".
+	// -create is implied (the flags ARE the bootstrap); state lives directly in
+	// -state-dir/default/ so recovery works across restarts.
+	if !cfg.create {
+		// Preserve the old "must pass -create" guard when the dir is empty: try to
+		// open first, and if that fails, require -create.
+		if _, err := budget.OpenBudget(filepath.Join(cfg.dir, "default"), cfg.sync); err != nil {
+			return nil, fmt.Errorf("no budget in %s/default: %w (pass -create or -config)", cfg.dir, err)
+		}
 	}
-	now := time.Now().Unix()
-	secs := budget.Seconds(window.Seconds())
-	return budget.NewDurable(dir, rate, b0, now, now+secs, sync)
+	one := &daemon.Config{Accounts: []daemon.AccountConfig{{
+		Name: "default", Balance: cfg.b0, Rate: cfg.rate, Window: cfg.window.String(),
+	}}}
+	return daemon.NewRegistry(one, cfg.dir, cfg.sync, nowClock)
 }
