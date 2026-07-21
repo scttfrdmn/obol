@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Multi-source funding groundwork (#54): a `sources` field on the gate wire
+  request (ordered list of account budgets to fund one job) and the
+  ordered-fallback funding-plan computation. Each source funds a contiguous
+  whole-second time slice of the job at the full rate — quantized to `floor(B/c)`
+  seconds so every leg is an ordinary single-budget escrow (no kernel change) and
+  each budget keeps its own conservation. Not yet wired into the gate (next
+  change); single-source submissions are unaffected.
+
 ## [0.9.0] - 2026-07-21
 
 Burst dispatch gate + janitor hardening. This delivers the burst dispatch path

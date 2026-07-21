@@ -7,6 +7,7 @@ import (
 	"errors"
 	"hash/crc32"
 	"io"
+	"reflect"
 	"testing"
 )
 
@@ -23,6 +24,10 @@ func TestRoundTrip(t *testing.T) {
 		})},
 		{"gate-array", GateFrame(&GateRequest{
 			Account: "lab_smith", Partition: "serial-requeue", TimeLimit: 600, NTasks: 100,
+		})},
+		{"gate-multisource", GateFrame(&GateRequest{
+			Account: "grant", Partition: "cloud", TimeLimit: 3600, NTasks: 1,
+			Sources: []string{"grant", "startup", "discretionary"},
 		})},
 		{"gate-resp-allow", &Frame{MsgKind: KindGate, GateResp: &GateResponse{Allow: true, Token: "budget:abc123"}}},
 		{"gate-resp-reject", &Frame{MsgKind: KindGate, GateResp: &GateResponse{Allow: false, Reason: "insufficient budget"}}},
@@ -83,7 +88,8 @@ func assertFrameEqual(t *testing.T, want, got *Frame) {
 	t.Helper()
 	switch {
 	case want.Gate != nil:
-		if got.Gate == nil || *got.Gate != *want.Gate {
+		// GateRequest has a slice field (Sources), so compare with DeepEqual.
+		if got.Gate == nil || !reflect.DeepEqual(*got.Gate, *want.Gate) {
 			t.Errorf("gate: got %+v, want %+v", got.Gate, want.Gate)
 		}
 	case want.GateResp != nil:

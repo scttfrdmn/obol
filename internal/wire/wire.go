@@ -95,6 +95,13 @@ type GateRequest struct {
 	TimeLimit int64  `json:"time_limit"` // requested walltime, seconds
 	TRES      TRES   `json:"tres"`
 	NTasks    int    `json:"ntasks"` // 1 = single job; >1 = array task count
+
+	// Sources is an ordered list of account budgets to fund the job from
+	// (multi-source funding, #54). The gate fills each source up to its available
+	// balance in order, spilling the remainder to the next (ordered fallback).
+	// Empty means single-source: the job funds entirely from Account, exactly as
+	// before this field existed. Ignored for arrays (NTasks > 1) in this round.
+	Sources []string `json:"sources,omitempty"`
 }
 
 // GateResponse is the gate verdict. On Allow the daemon has already escrowed
