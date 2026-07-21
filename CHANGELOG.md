@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-07-21
+
+Gen 1 integration. The cost model now weights job cost by requested TRES, and a
+controller-side jobcomp feed drives settlement reliably (even on node failure).
+`admin_comment` writability on Slurm 22.05 — the last unconfirmed Gen 1 blocker —
+is confirmed by the Docker tier. This is a minor bump: the wire protocol gains a
+STATUS message and the kernel gains per-job-rate submit entry points, both
+additive and backward-compatible.
+
 ### Added
 - Controller-side completion feed (issue #13): a `jobcomp/script` hook
   (`seam/slurm/obol-jobcomp.sh`) that SETTLEs each job from slurmctld at completion, mapping Slurm
@@ -130,6 +139,7 @@ lock-cheap read path (#7), and config durability (#8).
 - Seam design document (`docs/SEAM_DESIGN.md`) describing the Slurm attachment.
 - Project scaffold: CI (race + lint + coverage), release pipeline, governance.
 
-[Unreleased]: https://github.com/scttfrdmn/obol/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/scttfrdmn/obol/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/scttfrdmn/obol/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/scttfrdmn/obol/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/scttfrdmn/obol/releases/tag/v0.1.0
