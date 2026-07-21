@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-07-21
+
+Money movement between budgets, and the kernel primitive under it. This closes
+the CLI / budget-management milestone: admins can now reallocate funds across
+accounts with `obol transfer`, atomically and crash-safely. Minor bump: additive
+`TRANSFER` wire message and new kernel transitions (`Withdraw`, transfer-tagged
+top-up/withdraw). Conservation (invariant #1) now holds *across two budgets* for a
+completed or recovered transfer; the money ledger's single-budget behavior is
+unchanged. Transfers require `obold -config`.
+
 ### Added
 - `obol transfer --from A --to B (--amount N | --all)` — move money between two
   account budgets, admin-gated. The move is **atomic across a crash**: a daemon
@@ -313,7 +323,8 @@ lock-cheap read path (#7), and config durability (#8).
 - Seam design document (`docs/SEAM_DESIGN.md`) describing the Slurm attachment.
 - Project scaffold: CI (race + lint + coverage), release pipeline, governance.
 
-[Unreleased]: https://github.com/scttfrdmn/obol/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/scttfrdmn/obol/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/scttfrdmn/obol/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/scttfrdmn/obol/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/scttfrdmn/obol/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/scttfrdmn/obol/compare/v0.4.0...v0.5.0
