@@ -370,6 +370,57 @@ func parseTime(s string) (int64, error) {
 	return t.Unix(), nil
 }
 
+// cmdResolve dry-runs the gate decision for a submission: which budget resolves,
+// the effective rate, access, and whether it would be admitted — no escrow.
+func cmdResolve(args []string, out, errOut io.Writer) int {
+	fs := flag.NewFlagSet("resolve", flag.ContinueOnError)
+	fs.SetOutput(errOut)
+	socket := socketFlag(fs)
+	account := fs.String("account", "", "account (the resolution key)")
+	partition := fs.String("partition", "", "partition (for node-type pricing)")
+	timeLimit := fs.Int64("time-limit", 0, "walltime seconds (optional: also checks funding)")
+	uid := fs.Uint64("uid", 0, "submitter uid (optional: also checks access)")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if *account == "" {
+		return fail(errOut, fmt.Errorf("--account is required"))
+	}
+	if *uid > math.MaxUint32 {
+		return fail(errOut, fmt.Errorf("--uid out of range"))
+	}
+	resp, err := roundTrip(*socket, wire.ResolveFrame(&wire.ResolveRequest{
+		Account: *account, Partition: *partition, UID: uint32(*uid), TimeLimit: *timeLimit,
+	}))
+	if err != nil {
+		return fail(errOut, err)
+	}
+	r := resp.ResolveResp
+	if r == nil {
+		return fail(errOut, fmt.Errorf("empty resolve response"))
+	}
+	if !r.OK {
+		return fail(errOut, fmt.Errorf("%s", r.Reason))
+	}
+	pf(out, "Account:    %s\n", r.Account)
+	pf(out, "Resolved:   %v\n", r.Resolved)
+	if r.Resolved {
+		pf(out, "Rate:       %d/s (%s)\n", r.Rate, r.RateSource)
+		pf(out, "Balance:    %d\n", r.Balance)
+		if r.Cost > 0 {
+			pf(out, "Cost:       %d\n", r.Cost)
+		}
+		pf(out, "Authorized: %v\n", r.Authorized)
+	}
+	pf(out, "Admits:     %v\n", r.Admits)
+	pf(out, "Why:        %s\n", r.Decision)
+	// Exit 3 = would be rejected (distinct from transport error 1), mirroring gate.
+	if !r.Admits {
+		return 3
+	}
+	return 0
+}
+
 // --- small formatting/parsing helpers ---
 
 func parseSettleKind(s string) (wire.SettleKind, error) {

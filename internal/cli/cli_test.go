@@ -296,3 +296,26 @@ func TestSetVerbsBadArgs(t *testing.T) {
 		t.Errorf("set-window bad start: exit %d, want 1", code)
 	}
 }
+
+// TestResolveVerb drives resolve against a single-budget daemon: a funded
+// resolve admits (exit 0), an over-budget one is rejected (exit 3).
+func TestResolveVerb(t *testing.T) {
+	sock, _ := newDaemon(t) // default: balance 100000, rate 1
+
+	code, out, errOut := run(sock, "resolve", "--account", "default", "--time-limit", "100")
+	if code != 0 {
+		t.Fatalf("resolve exit %d, stderr=%q", code, errOut)
+	}
+	for _, want := range []string{"Resolved:   true", "Admits:     true", "Rate:", "flat"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("resolve output missing %q:\n%s", want, out)
+		}
+	}
+	// Over budget -> would be rejected -> exit 3.
+	if code, out, _ := run(sock, "resolve", "--account", "default", "--time-limit", "200000"); code != 3 {
+		t.Errorf("over-budget resolve exit = %d, want 3\n%s", code, out)
+	}
+	// (In single-budget mode any account resolves to the sole "default" budget —
+	// the back-compat rule — so unknown-account rejection is covered by the
+	// multi-account daemon test, not here.)
+}

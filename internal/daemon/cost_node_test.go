@@ -190,3 +190,61 @@ func TestBindUnknownNodeTypeKeepsWorstCase(t *testing.T) {
 		t.Errorf("balance = %d, want worst-case %d (unknown node kept escrow)", lab.Balance(), 1_000_000-1000)
 	}
 }
+
+// TestResolveExplainsDecision covers the resolve dry-run: resolved vs not,
+// rate source, funding, and access — without escrowing.
+func TestResolveExplainsDecision(t *testing.T) {
+	cfg := &Config{
+		Accounts: []AccountConfig{
+			{Name: "lab", Balance: 1000, Rate: 2, Window: "1000000s"},
+			{Name: "lab_jones", Balance: 500, Rate: 1, Window: "1000000s", AllowUsers: []string{"carol"}},
+		},
+		NodeTypes:  map[string]NodeRate{"spr": {Rate: 10}, "icx": {Rate: 6}},
+		Partitions: []PartitionConfig{{Name: "priced", NodeTypes: []string{"spr", "icx"}}},
+		AdminUsers: []string{"root"},
+	}
+	reg, err := NewRegistry(cfg, t.TempDir(), false, testNow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = reg.Close() })
+	srv := NewWithRegistry(reg, testNow, Weights{})
+	nc, _ := BuildNodeCost(cfg)
+	srv.SetNodeCost(nc)
+	srv.ident = fakeIdentity{users: map[uint32]string{5: "mallory", 12: "carol"}, groups: map[uint32][]string{5: {"x"}, 12: {"jones"}}}
+	admin := PeerCred{UID: 0, Available: true} // root: reads everything
+
+	// Unresolved account.
+	r := srv.handleResolve(&wire.ResolveRequest{Account: "ghost"}, admin).ResolveResp
+	if r.Resolved || r.Admits {
+		t.Errorf("ghost should not resolve/admit: %+v", r)
+	}
+
+	// Resolved, flat rate, funded (100s * 2 = 200 <= 1000).
+	r = srv.handleResolve(&wire.ResolveRequest{Account: "lab", TimeLimit: 100}, admin).ResolveResp
+	if !r.Resolved || r.RateSource != "flat" || r.Rate != 2 || r.Cost != 200 || !r.Admits {
+		t.Errorf("lab flat resolve wrong: %+v", r)
+	}
+
+	// Node-type worst-case rate on the priced partition (max spr=10).
+	r = srv.handleResolve(&wire.ResolveRequest{Account: "lab", Partition: "priced", TimeLimit: 10}, admin).ResolveResp
+	if r.RateSource != "node-type worst-case" || r.Rate != 10 || r.Cost != 100 {
+		t.Errorf("priced resolve wrong: %+v", r)
+	}
+
+	// Unfunded: 1000s * 2 = 2000 > 1000.
+	r = srv.handleResolve(&wire.ResolveRequest{Account: "lab", TimeLimit: 1000}, admin).ResolveResp
+	if r.Admits {
+		t.Errorf("over-budget resolve should not admit: %+v", r)
+	}
+
+	// Access: mallory unauthorized for restricted lab_jones; carol authorized.
+	r = srv.handleResolve(&wire.ResolveRequest{Account: "lab_jones", UID: 5, TimeLimit: 10}, admin).ResolveResp
+	if r.Authorized || r.Admits {
+		t.Errorf("mallory should not be authorized for lab_jones: %+v", r)
+	}
+	r = srv.handleResolve(&wire.ResolveRequest{Account: "lab_jones", UID: 12, TimeLimit: 10}, admin).ResolveResp
+	if !r.Authorized || !r.Admits {
+		t.Errorf("carol should be authorized + admitted for lab_jones: %+v", r)
+	}
+}

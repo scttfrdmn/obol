@@ -141,6 +141,8 @@ func (s *Server) dispatch(req *wire.Frame, peer PeerCred) *wire.Frame {
 		return s.handleSetRate(req.SetRate, peer)
 	case wire.KindSetWindow:
 		return s.handleSetWindow(req.SetWindow, peer)
+	case wire.KindResolve:
+		return s.handleResolve(req.Resolve, peer)
 	case wire.KindPing:
 		return wire.PingFrame() // echo: liveness only
 	default:
@@ -445,6 +447,75 @@ func (s *Server) handleSetWindow(req *wire.SetWindowRequest, peer PeerCred) *wir
 	return &wire.Frame{MsgKind: wire.KindSetWindow, AckResp: &wire.AckResponse{OK: true}}
 }
 
+// handleResolve is a DRY RUN of the gate's decision for a submission: it reports
+// which budget the account resolves to, the effective rate and its source, the
+// access verdict, and whether the gate would admit — escrowing nothing. Read
+// verb: visibility-scoped like show/list.
+func (s *Server) handleResolve(req *wire.ResolveRequest, peer PeerCred) *wire.Frame {
+	if req == nil {
+		return resolveReject("empty resolve request")
+	}
+	resp := &wire.ResolveResponse{OK: true, Account: req.Account}
+
+	bd, err := s.reg.Resolve(req.Account)
+	if err != nil {
+		// Not resolved: report the (non-)decision rather than erroring.
+		resp.Resolved = false
+		resp.Admits = false
+		resp.Decision = "no budget resolves for account " + req.Account + " → reject (no funded path)"
+		return &wire.Frame{MsgKind: wire.KindResolve, ResolveResp: resp}
+	}
+	resp.Resolved = true
+
+	// Read scoping: a caller may only diagnose accounts they can see.
+	if !s.canRead(req.Account, peer) {
+		return resolveReject("not authorized to view account " + req.Account)
+	}
+
+	st := bd.Report(s.now())
+	resp.Balance = st.B
+
+	// Effective rate + its source, mirroring handleGate's precedence.
+	if r := s.nodeCost.worstRate(req.Partition); r > 0 {
+		resp.Rate, resp.RateSource = r, "node-type worst-case"
+	} else if r := s.weights.Rate(req.TRES); r > 0 {
+		resp.Rate, resp.RateSource = r, "tres"
+	} else {
+		resp.Rate, resp.RateSource = st.C, "flat"
+	}
+
+	// Access verdict (does not escrow).
+	authorized, areason := s.authorize(req.Account, req.UID)
+	resp.Authorized = authorized
+
+	// Cost + funding/window checks if a walltime was given.
+	inWindow := s.now() >= st.TS && s.now() < st.TE && !st.Lapsed
+	funded := true
+	if req.TimeLimit > 0 {
+		resp.Cost = resp.Rate * req.TimeLimit
+		funded = resp.Cost <= st.B
+	}
+
+	switch {
+	case !authorized:
+		resp.Admits, resp.Decision = false, areason
+	case !inWindow:
+		resp.Admits, resp.Decision = false, "budget window closed/lapsed → reject"
+	case !funded:
+		resp.Admits, resp.Decision = false, fmt.Sprintf("insufficient budget: cost %d > balance %d", resp.Cost, st.B)
+	default:
+		resp.Admits = true
+		if req.TimeLimit > 0 {
+			resp.Decision = fmt.Sprintf("admit: account %s, rate %d (%s), cost %d ≤ balance %d",
+				req.Account, resp.Rate, resp.RateSource, resp.Cost, st.B)
+		} else {
+			resp.Decision = fmt.Sprintf("admit: resolves to %s, rate %d (%s); pass --time-limit to check funding",
+				req.Account, resp.Rate, resp.RateSource)
+		}
+	}
+	return &wire.Frame{MsgKind: wire.KindResolve, ResolveResp: resp}
+}
+
 // mintToken returns a unique, unforgeable correlation token. The "budget:" prefix
 // matches what the shim stamps into admin_comment (docs/SEAM_DESIGN.md §4).
 func mintToken() (string, error) {
@@ -477,4 +548,8 @@ func logReject(reason string) *wire.Frame {
 
 func ackReject(reason string) *wire.Frame {
 	return &wire.Frame{MsgKind: wire.KindSetRate, AckResp: &wire.AckResponse{OK: false, Reason: reason}}
+}
+
+func resolveReject(reason string) *wire.Frame {
+	return &wire.Frame{MsgKind: wire.KindResolve, ResolveResp: &wire.ResolveResponse{OK: false, Reason: reason}}
 }
