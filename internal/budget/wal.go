@@ -46,6 +46,7 @@ const (
 	KindInfraFailTask = "aif"
 	KindLapse         = "lap"
 	KindTopUp         = "top"
+	KindReprice       = "rep"
 )
 
 // WAL is an append-only command log. Record framing: [u32 len][u32 crc32][payload].

@@ -8,6 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Budget `Reprice(jobID, newRate, now)` kernel transition (issue #65): lowers a live escrow's cost
+  rate before it starts, refunding the over-reservation (`Reserved → B`, `B0` unchanged). This is
+  the node-type cost true-up — the gate escrows the worst-case node rate at submit (placement
+  unknown), and once Slurm binds the real node the daemon reprices to its cheaper rate. May only
+  *lower* the rate (worst-case escrow guarantees `newRate ≤ current`; a raise is rejected to keep
+  the no-overdraft invariant), and only before `Start`. Logged + replays on recovery; conservation
+  asserted before/after and across a crash. Tests under `-race`.
 - `obol log` — transaction/audit view (issue #22): renders an account's WAL as a time-ordered
   list of transitions (submit/start/settle/lapse/topup) with amounts, rates, and runtimes. The WAL
   is already an append-only audit trail, so this is a read-only render — `budget.Budget.Log()` /
