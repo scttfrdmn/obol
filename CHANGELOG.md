@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-07-21
+
+Node-type cost model + audit log. Cost now attaches to the node Slurm binds: a
+partition's job escrows the worst-case node rate at submit (placement unknown)
+and is repriced down to the actual node's rate at dispatch (via the prolog/BIND),
+so heterogeneous partitions bill correctly. `obol log` renders the WAL as a
+human-readable audit trail. Minor bump: new `Reprice` transition, `LOG` wire
+message, `BIND` `NodeType` field, and node-type config — all additive;
+partitions without node-type config keep prior pricing.
+
 ### Added
 - Node-type cost true-up at dispatch (issue #65): `BIND` now carries the actual node type
   (`BindRequest.NodeType`); when node-type pricing is configured, the daemon reprices the escrow
@@ -228,7 +238,8 @@ lock-cheap read path (#7), and config durability (#8).
 - Seam design document (`docs/SEAM_DESIGN.md`) describing the Slurm attachment.
 - Project scaffold: CI (race + lint + coverage), release pipeline, governance.
 
-[Unreleased]: https://github.com/scttfrdmn/obol/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/scttfrdmn/obol/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/scttfrdmn/obol/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/scttfrdmn/obol/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/scttfrdmn/obol/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/scttfrdmn/obol/compare/v0.1.1...v0.2.0
