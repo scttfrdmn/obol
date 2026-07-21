@@ -248,3 +248,43 @@ func TestResolveExplainsDecision(t *testing.T) {
 		t.Errorf("carol should be authorized + admitted for lab_jones: %+v", r)
 	}
 }
+
+// TestSimulateHandler covers the simulate dry-run at the daemon: funded verdict,
+// rate source, runway, and that it commits nothing (a real gate after still sees
+// the full balance).
+func TestSimulateHandler(t *testing.T) {
+	cfg := &Config{
+		Accounts:   []AccountConfig{{Name: "lab", Balance: 1000, Rate: 2, Window: "1000000s"}},
+		NodeTypes:  map[string]NodeRate{"spr": {Rate: 10}, "icx": {Rate: 6}},
+		Partitions: []PartitionConfig{{Name: "priced", NodeTypes: []string{"spr", "icx"}}},
+	}
+	reg, err := NewRegistry(cfg, t.TempDir(), false, testNow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = reg.Close() })
+	srv := NewWithRegistry(reg, testNow, Weights{})
+	nc, _ := BuildNodeCost(cfg)
+	srv.SetNodeCost(nc)
+	lab, _ := reg.Resolve("lab")
+
+	// Funded flat: 100s * 2 = 200 <= 1000; runway = 1000/2 = 500.
+	r := srv.handleSimulate(&wire.SimulateRequest{Account: "lab", TimeLimit: 100}, PeerCred{}).SimulateResp
+	if !r.Admit || r.Cost != 200 || r.RateSource != "flat" || r.Runway != 500 {
+		t.Errorf("funded simulate wrong: %+v", r)
+	}
+	// Node-type worst-case on priced: rate 10, cost 10*100=1000 == balance (funds).
+	r = srv.handleSimulate(&wire.SimulateRequest{Account: "lab", Partition: "priced", TimeLimit: 100}, PeerCred{}).SimulateResp
+	if r.RateSource != "node-type worst-case" || r.Cost != 1000 || !r.Admit {
+		t.Errorf("priced simulate wrong: %+v", r)
+	}
+	// Unfunded: 1000s * 2 = 2000 > 1000.
+	r = srv.handleSimulate(&wire.SimulateRequest{Account: "lab", TimeLimit: 1000}, PeerCred{}).SimulateResp
+	if r.Admit || r.Deny == "" {
+		t.Errorf("over-budget simulate should deny: %+v", r)
+	}
+	// Committed nothing: balance untouched, no escrows.
+	if lab.Balance() != 1000 || lab.Live() != 0 {
+		t.Errorf("simulate mutated state: balance=%d live=%d", lab.Balance(), lab.Live())
+	}
+}

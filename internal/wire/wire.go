@@ -56,6 +56,7 @@ const (
 	KindSetRate   Kind = "set_rate"
 	KindSetWindow Kind = "set_window"
 	KindResolve   Kind = "resolve"
+	KindSimulate  Kind = "simulate"
 )
 
 // SettleKind names how a job ended, routing to the matching kernel transition.
@@ -251,6 +252,29 @@ type ResolveResponse struct {
 	Decision   string `json:"decision,omitempty"`    // human summary of why
 }
 
+// SimulateRequest asks whether a hypothetical job would be admitted now, without
+// committing. Complements resolve with forward-looking cost/funding/runway.
+type SimulateRequest struct {
+	Account   string `json:"account"`
+	Partition string `json:"partition,omitempty"`
+	TimeLimit int64  `json:"time_limit"`
+	TRES      TRES   `json:"tres,omitempty"`
+}
+
+// SimulateResponse is the dry-run verdict for a hypothetical job.
+type SimulateResponse struct {
+	OK         bool   `json:"ok"`
+	Reason     string `json:"reason,omitempty"` // resolve/transport error
+	Account    string `json:"account,omitempty"`
+	Rate       int64  `json:"rate,omitempty"`
+	RateSource string `json:"rate_source,omitempty"`
+	Cost       int64  `json:"cost,omitempty"`
+	Balance    int64  `json:"balance,omitempty"`
+	Admit      bool   `json:"admit"`            // would the gate admit it now?
+	Deny       string `json:"deny,omitempty"`   // gate's deny reason when !Admit
+	Runway     int64  `json:"runway,omitempty"` // time-to-empty seconds at current balance/rate; -1 if none
+}
+
 // LogRequest asks for the audit log (WAL render) of an account's budget.
 type LogRequest struct {
 	Account string `json:"account,omitempty"`
@@ -299,17 +323,19 @@ type Frame struct {
 	SetRate   *SetRateRequest   `json:"set_rate,omitempty"`
 	SetWindow *SetWindowRequest `json:"set_window,omitempty"`
 	Resolve   *ResolveRequest   `json:"resolve,omitempty"`
+	Simulate  *SimulateRequest  `json:"simulate,omitempty"`
 
 	// Responses (one populated per response frame).
-	GateResp    *GateResponse    `json:"gate_resp,omitempty"`
-	BindResp    *BindResponse    `json:"bind_resp,omitempty"`
-	SettleResp  *SettleResponse  `json:"settle_resp,omitempty"`
-	StatusResp  *StatusResponse  `json:"status_resp,omitempty"`
-	TopUpResp   *TopUpResponse   `json:"topup_resp,omitempty"`
-	ListResp    *ListResponse    `json:"list_resp,omitempty"`
-	LogResp     *LogResponse     `json:"log_resp,omitempty"`
-	AckResp     *AckResponse     `json:"ack_resp,omitempty"`
-	ResolveResp *ResolveResponse `json:"resolve_resp,omitempty"`
+	GateResp     *GateResponse     `json:"gate_resp,omitempty"`
+	BindResp     *BindResponse     `json:"bind_resp,omitempty"`
+	SettleResp   *SettleResponse   `json:"settle_resp,omitempty"`
+	StatusResp   *StatusResponse   `json:"status_resp,omitempty"`
+	TopUpResp    *TopUpResponse    `json:"topup_resp,omitempty"`
+	ListResp     *ListResponse     `json:"list_resp,omitempty"`
+	LogResp      *LogResponse      `json:"log_resp,omitempty"`
+	AckResp      *AckResponse      `json:"ack_resp,omitempty"`
+	ResolveResp  *ResolveResponse  `json:"resolve_resp,omitempty"`
+	SimulateResp *SimulateResponse `json:"simulate_resp,omitempty"`
 }
 
 // Sentinel errors surfaced by decode. ErrVersion is distinguished so a caller
@@ -430,4 +456,9 @@ func SetWindowFrame(account string, ts, te int64) *Frame {
 // ResolveFrame wraps a ResolveRequest in a request Frame.
 func ResolveFrame(req *ResolveRequest) *Frame {
 	return &Frame{MsgKind: KindResolve, Resolve: req}
+}
+
+// SimulateFrame wraps a SimulateRequest in a request Frame.
+func SimulateFrame(req *SimulateRequest) *Frame {
+	return &Frame{MsgKind: KindSimulate, Simulate: req}
 }

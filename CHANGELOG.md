@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `obol simulate` / `obol estimate` — will-it-fund + runway (issue #21): given an account and a
+  hypothetical job (`--time-limit`, optional `--partition`/`--cpus`/`--gpus`/`--mem`), reports the
+  cost, whether the gate would admit it now, the deny reason if not, and the budget's projected
+  **runway** (time-to-empty at the current balance and rate) — **committing nothing**. Backed by a
+  new read-only `budget.Simulate` kernel method that mirrors the gate's solvency/window/rate-ceiling
+  checks *and* the dispatch-time burst-headroom check against a projected accrual, without debiting
+  or banking. Read-only, visibility-scoped; exit 3 when it would not fund.
+
 ## [0.6.0] - 2026-07-21
 
 Live budget administration + diagnostics. Admins can adjust an account's rate and
