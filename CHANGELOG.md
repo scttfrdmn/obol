@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-07-21
+
+Live budget administration with real authorization. `obol topup` adds money to a
+running account (a logged, conservation-preserving kernel transition), `obol list`
+enumerates accounts, and management commands are now authorized by the
+connection's kernel-verified peer identity (`SO_PEERCRED`) — mutating verbs
+require an admin, reads are visibility-scoped. Minor bump: additive `TOPUP`/`LIST`
+wire messages and the `TopUp` transition; a new `golang.org/x/sys` dependency;
+authorization is off by default (opt-in via `admin_users`/`admin_groups`), so
+existing deployments are unaffected.
+
 ### Added
 - Docker tier validates topup + peer-cred authz on real Slurm (issue #59): with `admin_users:
   ["root"]` configured, root tops up an account (balance/allocation grow, conservation holds), a
@@ -189,7 +200,8 @@ lock-cheap read path (#7), and config durability (#8).
 - Seam design document (`docs/SEAM_DESIGN.md`) describing the Slurm attachment.
 - Project scaffold: CI (race + lint + coverage), release pipeline, governance.
 
-[Unreleased]: https://github.com/scttfrdmn/obol/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/scttfrdmn/obol/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/scttfrdmn/obol/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/scttfrdmn/obol/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/scttfrdmn/obol/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/scttfrdmn/obol/compare/v0.1.0...v0.1.1
