@@ -36,10 +36,11 @@ type Clock func() budget.Seconds
 // and SETTLE carry only a token/jobid, so the server records token→budget (and
 // token→jobid) at gate time to route them back.
 type Server struct {
-	reg     *Registry
-	now     Clock
-	weights Weights          // TRES->rate; zero-value = flat-rate (use each budget's C)
-	ident   identityResolver // uid -> user/groups, only used for restricted accounts
+	reg      *Registry
+	now      Clock
+	weights  Weights          // TRES->rate; zero-value = flat-rate (use each budget's C)
+	nodeCost *NodeCost        // node-type rates (issue #65); nil/empty = not configured
+	ident    identityResolver // uid -> user/groups, only used for restricted accounts
 
 	mu          sync.Mutex                // guards jobToToken and tokenBudget
 	jobToToken  map[string]string         // Slurm jobid -> escrow token
@@ -73,6 +74,10 @@ func NewWithRegistry(reg *Registry, now Clock, w Weights) *Server {
 		tokenBudget: make(map[string]*budget.Budget),
 	}
 }
+
+// SetNodeCost enables node-type pricing (issue #65). When set, the gate escrows
+// a partition's worst-case node rate and BIND reprices to the actual node.
+func (s *Server) SetNodeCost(nc *NodeCost) { s.nodeCost = nc }
 
 // Serve accepts connections on ln until it is closed, handling each in its own
 // goroutine. It returns when the listener is closed (a clean shutdown), swallowing
@@ -164,7 +169,14 @@ func (s *Server) handleGate(req *wire.GateRequest) *wire.Frame {
 		return gateReject("token mint failed")
 	}
 	now := s.now()
-	c := s.weights.Rate(req.TRES) // 0 in flat-rate mode => kernel uses the budget's C
+	// Cost rate: node-type worst-case (if this partition has node types
+	// configured) takes precedence — the gate can't know the node yet, so it
+	// escrows the most expensive it could land on; BIND reprices down to the
+	// actual node. Otherwise fall back to TRES weighting / the budget's flat rate.
+	c := s.nodeCost.worstRate(req.Partition)
+	if c == 0 {
+		c = s.weights.Rate(req.TRES) // 0 => kernel uses the budget's C
+	}
 	if req.NTasks > 1 {
 		err = bd.SubmitArrayAt(token, c, req.NTasks, req.TimeLimit, now)
 	} else {

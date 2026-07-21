@@ -72,13 +72,19 @@ func nowClock() budget.Seconds { return time.Now().Unix() }
 // run builds the budget registry (multi-account via -config, else a single
 // budget from the flags), binds the socket, and serves until signalled.
 func run(cfg config) error {
-	reg, err := buildRegistry(cfg)
+	reg, parsed, err := buildRegistry(cfg)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = reg.Close() }()
 
 	srv := daemon.NewWithRegistry(reg, nowClock, cfg.weights)
+	// Node-type pricing (issue #65), if configured.
+	nc, err := daemon.BuildNodeCost(parsed)
+	if err != nil {
+		return err
+	}
+	srv.SetNodeCost(nc)
 
 	if err := os.MkdirAll(filepath.Dir(cfg.sock), 0o750); err != nil {
 		return fmt.Errorf("socket dir: %w", err)
@@ -109,13 +115,14 @@ func run(cfg config) error {
 // multi-account config and opens/creates a budget per account under
 // <state-dir>/<name>/. Without -config it falls back to the single-budget flags
 // (one account named "default"), preserving all pre-multi-account behavior.
-func buildRegistry(cfg config) (*daemon.Registry, error) {
+func buildRegistry(cfg config) (*daemon.Registry, *daemon.Config, error) {
 	if cfg.configPath != "" {
 		c, err := daemon.LoadConfig(cfg.configPath)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
-		return daemon.NewRegistry(c, cfg.dir, cfg.sync, nowClock)
+		reg, err := daemon.NewRegistry(c, cfg.dir, cfg.sync, nowClock)
+		return reg, c, err
 	}
 	// Single-budget back-compat: synthesize a one-account config named "default".
 	// -create is implied (the flags ARE the bootstrap); state lives directly in
@@ -124,11 +131,12 @@ func buildRegistry(cfg config) (*daemon.Registry, error) {
 		// Preserve the old "must pass -create" guard when the dir is empty: try to
 		// open first, and if that fails, require -create.
 		if _, err := budget.OpenBudget(filepath.Join(cfg.dir, "default"), cfg.sync); err != nil {
-			return nil, fmt.Errorf("no budget in %s/default: %w (pass -create or -config)", cfg.dir, err)
+			return nil, nil, fmt.Errorf("no budget in %s/default: %w (pass -create or -config)", cfg.dir, err)
 		}
 	}
 	one := &daemon.Config{Accounts: []daemon.AccountConfig{{
 		Name: "default", Balance: cfg.b0, Rate: cfg.rate, Window: cfg.window.String(),
 	}}}
-	return daemon.NewRegistry(one, cfg.dir, cfg.sync, nowClock)
+	reg, err := daemon.NewRegistry(one, cfg.dir, cfg.sync, nowClock)
+	return reg, one, err
 }
