@@ -122,6 +122,21 @@ func TestGateBindSettleVerbs(t *testing.T) {
 	if ok, _ := bd.ConservationOK(); !ok {
 		t.Error("conservation violated after settle")
 	}
+
+	// A second settle of the same job (double-fire from jobcomp + epilog) is a
+	// hard error by default but a benign no-op with --if-present.
+	if code, _, _ := run(sock, "settle", "--jobid", "7", "--kind", "complete", "--runtime", "10"); code != 1 {
+		t.Errorf("double settle without --if-present: exit = %d, want 1", code)
+	}
+	if code, out, errOut := run(sock, "settle", "--jobid", "7", "--kind", "complete", "--runtime", "10", "--if-present"); code != 0 {
+		t.Errorf("double settle with --if-present: exit = %d, stderr=%q", code, errOut)
+	} else if !strings.Contains(out, "already settled") {
+		t.Errorf("--if-present out = %q, want 'already settled'", out)
+	}
+	// Balance must be unchanged by the no-op re-settle.
+	if bal := bd.Balance(); bal != 99750 {
+		t.Errorf("balance changed by no-op re-settle: %d", bal)
+	}
 }
 
 // TestGateRejectExitCode confirms a clean rejection returns exit 3 (distinct

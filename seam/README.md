@@ -15,7 +15,8 @@ here yet — it needs per-generation cluster validation (v0.3.0).
 | `lua/obol_transport.lua` | One-shot Unix-socket round-trip for the GATE call, with a hard timeout. Backends: luasocket, then LuaJIT FFI. |
 | `lua/job_submit.lua` | The `JobSubmitPlugins=lua` shim: reads `job_desc`, one GATE call to obold, stamps the token into `admin_comment`, SUCCESS/reject. Applies the local fail-closed policy when obold is unreachable. |
 | `slurm/obol-prolog.sh` | Prolog: reads the token from `admin_comment` and BINDs token↔jobid at job start. |
-| `slurm/obol-epilog.sh` | Epilog: SETTLEs the escrow on job exit, mapping Slurm exit state to complete/timeout/cancel/infrafail. |
+| `slurm/obol-jobcomp.sh` | **jobcomp/script feed (primary settlement):** runs on the controller at every completion and SETTLEs the escrow, mapping Slurm state → complete/timeout/cancel/infrafail. Fires even on node failure (unlike the epilog). |
+| `slurm/obol-epilog.sh` | Epilog: an optional compute-node SETTLE fallback (redundant with jobcomp; uses `settle --if-present` so a double-fire is a no-op). |
 
 ## Requirements
 
@@ -27,18 +28,25 @@ here yet — it needs per-generation cluster validation (v0.3.0).
 ## slurm.conf
 
 ```
-JobSubmitPlugins=lua           # loads job_submit.lua from the plugin dir
-Prolog=/path/to/obol-prolog.sh
-Epilog=/path/to/obol-epilog.sh
+JobSubmitPlugins=lua                       # loads job_submit.lua from the plugin dir
+Prolog=/path/to/obol-prolog.sh             # BIND token<->jobid at start
+JobCompType=jobcomp/script                 # settlement feed (primary)
+JobCompLoc=/path/to/obol-jobcomp.sh
+# Epilog=/path/to/obol-epilog.sh           # optional redundant fallback
 ```
 
 Environment for the scripts and shim:
 
 ```
 OBOL_SOCKET=/run/obol/obold.sock   # must match obold -socket
-OBOL_BIN=/usr/local/bin/obol       # epilog/prolog CLI path
+OBOL_BIN=/usr/local/bin/obol       # CLI path for the scripts
 OBOL_TIMEOUT_MS=50                 # shim hard timeout for the GATE call
 ```
+
+**jobcomp runs with a minimal environment.** slurmctld invokes the `jobcomp/script`
+program without inheriting `OBOL_*` or a full `PATH`, so `obol-jobcomp.sh` defaults
+`OBOL` to the absolute `/usr/local/bin/obol` and `OBOL_SOCKET` to the standard path.
+Install the CLI there (or export the vars into slurmctld's environment).
 
 ## Testing
 

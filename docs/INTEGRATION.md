@@ -5,7 +5,7 @@ obol has three test tiers, in increasing fidelity and cost:
 | Tier | Command | What it proves | Needs |
 |------|---------|----------------|-------|
 | **Unit** | `make test` / `make race` | kernel invariants, wire framing, daemon/CLI over a socket, Lua↔Go framing | Go (+ `lua` for the seam cross-check) |
-| **Docker Slurm** | `make integ-docker` | the **real** GATE seam against an actual `slurmctld`: gate → escrow → run → epilog SETTLE → refund, plus multi-user/multi-account submission | Docker |
+| **Docker Slurm** | `make integ-docker` | the **real** GATE seam against an actual `slurmctld`: gate → escrow → run → jobcomp SETTLE → refund, plus multi-user/multi-account submission | Docker |
 | **ParallelCluster** | `make integ-pcluster` | the seam on real multi-node AWS Slurm with cloud partition policy | an AWS PC cluster + creds |
 
 The default `go test ./...` runs only the unit tier; the integration tiers are
@@ -55,7 +55,10 @@ source builds under issue #16.
 
 ## Scope of the seam under test
 
-This exercises the **GATE + epilog-SETTLE** money path only. It does **not**
+The Docker tier drives settlement through the **controller-side `jobcomp/script`
+feed** (#13) with no epilog installed, so it proves that path independently.
+
+This exercises the **GATE + SETTLE** money path only. It does **not**
 exercise the production burst dispatch gate (`site_factor`, v0.3.0) or the
 slurmdbd completion feed (#13) — settlement here is driven by the epilog. That
 is the honest boundary of what these tiers prove today.

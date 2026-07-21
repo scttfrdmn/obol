@@ -8,6 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Controller-side completion feed (issue #13): a `jobcomp/script` hook
+  (`seam/slurm/obol-jobcomp.sh`) that SETTLEs each job from slurmctld at completion, mapping Slurm
+  state → complete/timeout/cancel/infrafail. This is the reliable settlement path — it fires even
+  on node failure, unlike a compute-node epilog. The daemon needs no change (settle-by-jobid via
+  the bind table). Adds `obol settle --if-present` so a completion hook that double-fires (jobcomp
+  + epilog) is a benign no-op. Validated on real Slurm 22.05 with the epilog disabled (the Docker
+  tier now settles purely via jobcomp). The epilog is retained as an optional redundant fallback.
 - TRES-weighted cost model (issue #12): job cost can now depend on requested resources, not just a
   flat rate. The kernel gains a per-job rate — `Escrow.C` plus `SubmitAt`/`SubmitArrayAt(c, …)`
   (c≤0 falls back to the budget's flat `C`, so all existing behavior is unchanged); the rate is
