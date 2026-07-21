@@ -25,6 +25,74 @@ const (
 	OrphanRefundFull
 )
 
+// SweepUnbound reconciles the submit→start orphan window (docs/SEAM_DESIGN.md
+// §4/§13.2). Between the GATE (escrow minted against a correlation token) and the
+// job's first appearance to the site_factor/prolog path (token↔jobid bound, the
+// escrow marked Started), the daemon knows the job only as an UNBOUND token. If
+// the daemon crashes and recovers in that window it holds an escrow that never
+// started and that the jobid-based SweepOrphans can never match — its money is
+// reserved forever.
+//
+// SweepUnbound settles any escrow that (a) never started and (b) was submitted at
+// least ttl seconds before now, with a FULL REFUND: an unstarted job provably
+// consumed nothing, so Cancel(id, 0, now) returns the whole reservation. The ttl
+// distinguishes a job legitimately waiting to dispatch (recent, kept) from a
+// presumed-dead unbound token (stale, swept). Returns the count swept.
+//
+// A recent unbound escrow (age < ttl) is left alone — it may simply be a pending
+// job the scheduler hasn't started yet. Only staleness makes it an orphan.
+func (bd *Budget) SweepUnbound(ttl Seconds, now Seconds) int {
+	// Collect stale, never-started IDs first (can't mutate maps while settling).
+	bd.mu.Lock()
+	var ids []string
+	for id, e := range bd.escrows {
+		if !e.Started && now-e.Submitted >= ttl {
+			ids = append(ids, id)
+		}
+	}
+	type taskRef struct {
+		arrayID string
+		idx     int
+	}
+	var tasks []taskRef
+	for aid, ae := range bd.arrays {
+		if now-ae.Submitted < ttl {
+			continue
+		}
+		// An array is unbound only if NONE of its tasks ever started. If any task
+		// dispatched, the array is live work — leave it to the normal path.
+		anyStarted := false
+		for _, ts := range ae.tasks {
+			if ts.started {
+				anyStarted = true
+				break
+			}
+		}
+		if anyStarted {
+			continue
+		}
+		for idx, ts := range ae.tasks {
+			if !ts.settled {
+				tasks = append(tasks, taskRef{aid, idx})
+			}
+		}
+	}
+	bd.mu.Unlock()
+
+	swept := 0
+	for _, id := range ids {
+		if bd.Cancel(id, 0, now) == nil { // never started => full refund
+			swept++
+		}
+	}
+	for _, tr := range tasks {
+		if bd.CancelTask(tr.arrayID, tr.idx, 0, now) == nil {
+			swept++
+		}
+	}
+	return swept
+}
+
 // SweepOrphans settles every live escrow/array-task whose job ID is not present
 // in liveIDs. For arrays, liveIDs membership is checked per array ID (an array
 // is "live" if its array ID is in the set). Returns the count swept. `now` is

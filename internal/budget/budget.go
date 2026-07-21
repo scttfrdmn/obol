@@ -50,7 +50,8 @@ type Escrow struct {
 	Reserved  Units
 	W         Seconds
 	Started   bool
-	BurstResv Units // tokens reserved at dispatch; refunded tail at settle
+	BurstResv Units   // tokens reserved at dispatch; refunded tail at settle
+	Submitted Seconds // submit-time logical clock, for the unbound-token TTL sweep (#15)
 }
 
 // Budget is the single pot. All mutation goes through methods that take mu.
@@ -175,7 +176,7 @@ func (bd *Budget) SubmitAt(jobID string, c, w Seconds, now Seconds) error {
 	}
 	bd.B -= cost
 	bd.ReservedTotal += cost
-	bd.escrows[jobID] = &Escrow{JobID: jobID, C: c, Reserved: cost, W: w}
+	bd.escrows[jobID] = &Escrow{JobID: jobID, C: c, Reserved: cost, W: w, Submitted: now}
 	return nil
 }
 

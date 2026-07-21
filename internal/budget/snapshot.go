@@ -47,6 +47,7 @@ type escrowSnap struct {
 	W         Seconds `json:"w"`
 	Started   bool    `json:"s"`
 	BurstResv Units   `json:"br"`
+	Submitted Seconds `json:"sub,omitempty"`
 }
 
 type arraySnap struct {
@@ -56,6 +57,7 @@ type arraySnap struct {
 	N         int        `json:"n"`
 	Remaining int        `json:"rem"`
 	Reserved  Units      `json:"res"`
+	Submitted Seconds    `json:"sub,omitempty"`
 	Tasks     []taskSnap `json:"t"`
 }
 
@@ -78,10 +80,10 @@ func (bd *Budget) captureSnapshot(walOffset int64) snapshot {
 		WALOffset: walOffset,
 	}
 	for _, e := range bd.escrows {
-		s.Escrows = append(s.Escrows, escrowSnap{e.JobID, e.C, e.Reserved, e.W, e.Started, e.BurstResv})
+		s.Escrows = append(s.Escrows, escrowSnap{e.JobID, e.C, e.Reserved, e.W, e.Started, e.BurstResv, e.Submitted})
 	}
 	for _, ae := range bd.arrays {
-		as := arraySnap{ae.ArrayID, ae.C, ae.W, ae.N, ae.Remaining, ae.Reserved, nil}
+		as := arraySnap{ae.ArrayID, ae.C, ae.W, ae.N, ae.Remaining, ae.Reserved, ae.Submitted, nil}
 		for _, ts := range ae.tasks {
 			as.Tasks = append(as.Tasks, taskSnap{ts.idx, ts.started, ts.settled, ts.burstResv})
 		}
@@ -103,10 +105,10 @@ func budgetFromSnapshot(s snapshot) *Budget {
 		arrays:  make(map[string]*ArrayEscrow),
 	}
 	for _, e := range s.Escrows {
-		bd.escrows[e.JobID] = &Escrow{JobID: e.JobID, C: e.C, Reserved: e.Reserved, W: e.W, Started: e.Started, BurstResv: e.BurstResv}
+		bd.escrows[e.JobID] = &Escrow{JobID: e.JobID, C: e.C, Reserved: e.Reserved, W: e.W, Started: e.Started, BurstResv: e.BurstResv, Submitted: e.Submitted}
 	}
 	for _, as := range s.Arrays {
-		ae := &ArrayEscrow{ArrayID: as.ArrayID, C: as.C, W: as.W, N: as.N, Remaining: as.Remaining, Reserved: as.Reserved, tasks: make(map[int]*taskState)}
+		ae := &ArrayEscrow{ArrayID: as.ArrayID, C: as.C, W: as.W, N: as.N, Remaining: as.Remaining, Reserved: as.Reserved, Submitted: as.Submitted, tasks: make(map[int]*taskState)}
 		for _, t := range as.Tasks {
 			ae.tasks[t.Idx] = &taskState{idx: t.Idx, started: t.Started, settled: t.Settled, burstResv: t.BurstResv}
 		}

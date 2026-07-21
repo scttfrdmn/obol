@@ -269,6 +269,39 @@ func TestRegistryBurstConfigSurvivesRestart(t *testing.T) {
 	}
 }
 
+// TestRegistrySweepUnbound confirms the registry-wide unbound-token sweep reaches
+// every account's budget and reclaims stale never-started escrows.
+func TestRegistrySweepUnbound(t *testing.T) {
+	reg, err := NewRegistry(twoAccountConfig(), t.TempDir(), false, testNow) // clock fixed at 1000
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = reg.Close() }()
+	smith, _ := reg.Resolve("lab_smith")
+	jones, _ := reg.Resolve("lab_jones")
+
+	// Escrow one unbound token in each account at t=1000 (the fixed testNow).
+	if err := smith.SubmitAt("tok-s", 1, 100, testNow()); err != nil {
+		t.Fatal(err)
+	}
+	if err := jones.SubmitAt("tok-j", 2, 100, testNow()); err != nil {
+		t.Fatal(err)
+	}
+	sBal, jBal := smith.Balance(), jones.Balance()
+
+	// Sweep with now well past submit+ttl: both reclaimed.
+	swept := reg.SweepUnbound(300, testNow()+1000)
+	if swept != 2 {
+		t.Fatalf("registry sweep = %d, want 2 (one per account)", swept)
+	}
+	if smith.Balance() <= sBal || jones.Balance() <= jBal {
+		t.Errorf("balances not refunded: smith %d->%d jones %d->%d", sBal, smith.Balance(), jBal, jones.Balance())
+	}
+	if ok, _ := smith.ConservationOK(); !ok {
+		t.Error("smith conservation broken after sweep")
+	}
+}
+
 // TestRegistrySetAccessPersists covers attach/detach persistence.
 func TestRegistrySetAccessPersists(t *testing.T) {
 	dir := t.TempDir()

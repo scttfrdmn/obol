@@ -357,7 +357,8 @@ Each Slurm event invokes a kernel transition that is already built and tested:
 | admin remove money | `Withdraw(amount, now)` (lowers B and B0; caps at available B) |
 | admin move money | `obol transfer` → `Withdraw` + `TopUp`, journaled (§12.1) |
 | crash recovery | WAL replay through the same transitions |
-| lost completion | `SweepOrphans(liveIDs, policy, now)` + unbound-token TTL |
+| lost completion | `SweepOrphans(liveIDs, policy, now)` (jobid-based) |
+| never-bound token (submit→start crash) | `SweepUnbound(ttl, now)` — full refund of stale never-started escrows |
 
 The seam adds no new money or burst logic — it only routes real events onto transitions whose
 conservation and concurrency properties are already proven.
@@ -393,8 +394,12 @@ money committed to live work can never be moved out from under it.
 
 1. **`admin_comment` writability on 22.05** is unconfirmed — the per-generation checklist's first
    blocker for Gen 1.
-2. **Submit→start orphan window** — handled by an unbound-token TTL, which is designed but not
-   yet built into the janitor.
+2. **Submit→start orphan window** — *resolved (issue #15).* An escrow minted at the GATE but
+   never bound to a job id (the daemon crashed in the submit→start gap) is marked `Started ==
+   false` and carries its submit-time clock (`Escrow.Submitted`, persisted in the snapshot). The
+   `SweepUnbound(ttl, now)` janitor reclaims any never-started escrow older than `ttl` with a
+   full refund (it provably never ran). `obold` drives it on a ticker (`-unbound-ttl`,
+   `-sweep-interval`). This is the one orphan class the jobid-based `SweepOrphans` cannot match.
 3. **Group commit** — *resolved (issue #6).* `Append` writes the record to the page cache and
    returns; a background committer batches `fsync`s off the caller's path (while one slow `fsync`
    is in flight, more appends accumulate and the next `fsync` covers them all). The torn-tail

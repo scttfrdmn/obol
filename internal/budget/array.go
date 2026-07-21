@@ -23,6 +23,7 @@ type ArrayEscrow struct {
 	N         int     // original task count
 	Remaining int     // tasks not yet settled
 	Reserved  Units   // live reservation for this array == Remaining*C*W (+ in-flight)
+	Submitted Seconds // submit-time logical clock, for the unbound-token TTL sweep (#15)
 	tasks     map[int]*taskState
 }
 
@@ -89,7 +90,7 @@ func (bd *Budget) SubmitArrayAt(arrayID string, c Seconds, n int, w Seconds, now
 
 	ae := &ArrayEscrow{
 		ArrayID: arrayID, C: c, W: w, N: n, Remaining: n,
-		Reserved: cost, tasks: make(map[int]*taskState, n),
+		Reserved: cost, Submitted: now, tasks: make(map[int]*taskState, n),
 	}
 	for i := 0; i < n; i++ {
 		ae.tasks[i] = &taskState{idx: i}

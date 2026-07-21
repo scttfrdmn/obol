@@ -79,6 +79,14 @@ func NewWithRegistry(reg *Registry, now Clock, w Weights) *Server {
 // a partition's worst-case node rate and BIND reprices to the actual node.
 func (s *Server) SetNodeCost(nc *NodeCost) { s.nodeCost = nc }
 
+// SweepUnbound runs the unbound-token TTL janitor (#15) once across all accounts,
+// using the server's own clock for `now`. Returns the count reconciled. The
+// daemon drives this on a ticker (cmd/obold); exposed as a method so `now` stays
+// at the boundary, keeping the kernel clock-free.
+func (s *Server) SweepUnbound(ttl budget.Seconds) int {
+	return s.reg.SweepUnbound(ttl, s.now())
+}
+
 // Serve accepts connections on ln until it is closed, handling each in its own
 // goroutine. It returns when the listener is closed (a clean shutdown), swallowing
 // the resulting accept error.
