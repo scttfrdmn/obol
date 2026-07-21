@@ -60,6 +60,7 @@ RUN chmod +x /usr/local/bin/entrypoint.sh /usr/local/bin/obol-prolog.sh \
 # path must include /etc/slurm/lua. The shim sets these via LUA_PATH in the env.
 ENV LUA_PATH="/etc/slurm/lua/?.lua;;" \
     OBOL_SOCKET="/run/obol/obold.sock" \
-    OBOL_BIN="/usr/local/bin/obol"
+    OBOL_BIN="/usr/local/bin/obol" \
+    OBOL_NODETYPE="icx"
 
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]

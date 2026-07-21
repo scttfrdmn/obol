@@ -85,7 +85,7 @@ func usage(w io.Writer) {
 Usage:
   obol show                              show budget balance, burn, burst, conservation
   obol gate    --account A --partition P --time-limit S [--ntasks N]
-  obol bind    --token T --jobid J
+  obol bind    --token T --jobid J [--node-type NT]
   obol settle  (--jobid J | --token T) --kind KIND [--runtime S] [--elapsed S]
   obol topup   --account A --amount N    add money to an account (admin)
   obol list                              list accounts and balances

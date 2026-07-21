@@ -114,3 +114,79 @@ func TestGateEscrowsWorstCase(t *testing.T) {
 		t.Errorf("balance = %d, want %d (worst-case 10/s * 100s)", lab.Balance(), 1_000_000-1000)
 	}
 }
+
+// TestBindReprices confirms the full node-type flow at the daemon: gate escrows
+// worst-case, BIND with the actual (cheaper) node type reprices the escrow down
+// before Start, and settle bills at the trued-up rate.
+func TestBindReprices(t *testing.T) {
+	cfg := &Config{
+		Accounts:   []AccountConfig{{Name: "lab", Balance: 1_000_000, Rate: 1, Window: "1000000s"}},
+		NodeTypes:  map[string]NodeRate{"spr": {Rate: 10}, "icx": {Rate: 6}},
+		Partitions: []PartitionConfig{{Name: "mixed", NodeTypes: []string{"spr", "icx"}}},
+	}
+	reg, err := NewRegistry(cfg, t.TempDir(), false, testNow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = reg.Close() })
+	nc, _ := BuildNodeCost(cfg)
+	srv := NewWithRegistry(reg, testNow, Weights{})
+	srv.SetNodeCost(nc)
+	lab, _ := reg.Resolve("lab")
+
+	// Gate: 100s in "mixed" -> worst rate 10 -> escrow 1000.
+	g := srv.handleGate(&wire.GateRequest{Account: "lab", Partition: "mixed", TimeLimit: 100, NTasks: 1})
+	if g.GateResp == nil || !g.GateResp.Allow {
+		t.Fatalf("gate rejected: %+v", g.GateResp)
+	}
+	token := g.GateResp.Token
+	if lab.Balance() != 1_000_000-1000 {
+		t.Fatalf("after gate balance = %d, want %d (worst-case)", lab.Balance(), 1_000_000-1000)
+	}
+
+	// BIND with the actual node type icx (rate 6) -> reprice to 6*100=600,
+	// refunding 400.
+	b := srv.handleBind(&wire.BindRequest{Token: token, JobID: "1", NodeType: "icx"})
+	if b.BindResp == nil || !b.BindResp.OK {
+		t.Fatalf("bind failed: %+v", b.BindResp)
+	}
+	if lab.Balance() != 1_000_000-600 {
+		t.Errorf("after bind-reprice balance = %d, want %d (icx rate)", lab.Balance(), 1_000_000-600)
+	}
+
+	// Settle full runtime -> billed at the repriced rate 6*100=600.
+	s := srv.handleSettle(&wire.SettleRequest{JobID: "1", Kind: wire.SettleComplete, Runtime: 100})
+	if s.SettleResp == nil || !s.SettleResp.OK {
+		t.Fatalf("settle failed: %+v", s.SettleResp)
+	}
+	if r := lab.Report(testNow()); r.Consumed != 600 {
+		t.Errorf("consumed = %d, want 600 (trued-up rate)", r.Consumed)
+	}
+	if ok, _ := lab.ConservationOK(); !ok {
+		t.Error("conservation broken")
+	}
+}
+
+// TestBindUnknownNodeTypeKeepsWorstCase confirms an unknown/absent node type at
+// BIND leaves the worst-case escrow in place (no reprice).
+func TestBindUnknownNodeTypeKeepsWorstCase(t *testing.T) {
+	cfg := &Config{
+		Accounts:   []AccountConfig{{Name: "lab", Balance: 1_000_000, Rate: 1, Window: "1000000s"}},
+		NodeTypes:  map[string]NodeRate{"spr": {Rate: 10}},
+		Partitions: []PartitionConfig{{Name: "p", NodeTypes: []string{"spr"}}},
+	}
+	reg, _ := NewRegistry(cfg, t.TempDir(), false, testNow)
+	t.Cleanup(func() { _ = reg.Close() })
+	nc, _ := BuildNodeCost(cfg)
+	srv := NewWithRegistry(reg, testNow, Weights{})
+	srv.SetNodeCost(nc)
+	lab, _ := reg.Resolve("lab")
+
+	g := srv.handleGate(&wire.GateRequest{Account: "lab", Partition: "p", TimeLimit: 100, NTasks: 1})
+	token := g.GateResp.Token
+	// BIND with a node type that has no configured rate -> no reprice.
+	srv.handleBind(&wire.BindRequest{Token: token, JobID: "1", NodeType: "mystery"})
+	if lab.Balance() != 1_000_000-1000 {
+		t.Errorf("balance = %d, want worst-case %d (unknown node kept escrow)", lab.Balance(), 1_000_000-1000)
+	}
+}

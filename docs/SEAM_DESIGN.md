@@ -181,8 +181,20 @@ an argument for encouraging homogeneous-cost partitions.
 GATE request; the daemon maps it to a per-second rate via configured weights
 (`-tres-per-cpu|gpu|mem`, `daemon.Weights.Rate`) and passes that rate into the kernel's
 `SubmitAt`/`SubmitArrayAt`, which freeze it per-escrow and log it in the WAL. All-zero weights =
-flat rate (the budget's `C`), the default. The dispatch-time true-up for heterogeneous partitions
-is **deferred** — it needs the tier-2/site_factor bind path (v0.3.0), tracked separately.
+flat rate (the budget's `C`), the default.
+
+**Node-type cost + true-up (issue #65, implemented).** Because a partition can contain multiple
+node types, the real cost is set by the node Slurm *binds* — unknown at submit. So:
+- Config carries `node_types` (name → rate, per `s`/`m`/`h`, normalized to integer units/second)
+  and, per partition, the node types it can place on.
+- **Submit (gate):** the node isn't chosen, so obol escrows the partition's **worst-case** (max)
+  node rate × walltime — never under-escrows, preserving the no-overdraft invariant.
+- **Dispatch (BIND):** the prolog runs post-placement, resolves the bound node's type (from
+  `SLURM_JOB_NODELIST` → `ActiveFeatures`, or `OBOL_NODETYPE`), and passes it on BIND. The daemon
+  calls the kernel's `Reprice` — which may only **lower** the rate (worst ≥ actual) — before
+  `Start`, adjusting the escrow down to the real node's rate. Settlement then bills the trued rate.
+- **Trade-off:** worst-case escrow can reject a job that would have been cheap on a tight budget —
+  the correct conservative choice, and an argument for cost-homogeneous partitions.
 
 ---
 

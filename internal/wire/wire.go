@@ -102,8 +102,9 @@ type GateResponse struct {
 // (tier 2). After binding, the janitor can check liveness by job id. It also
 // carries the start event / burst-reservation trigger.
 type BindRequest struct {
-	Token string `json:"token"`
-	JobID string `json:"jobid"`
+	Token    string `json:"token"`
+	JobID    string `json:"jobid"`
+	NodeType string `json:"node_type,omitempty"` // actual node type (issue #65); triggers the cost true-up
 }
 
 // BindResponse acknowledges a bind.
@@ -329,6 +330,12 @@ func GateFrame(req *GateRequest) *Frame { return &Frame{MsgKind: KindGate, Gate:
 
 // BindFrame wraps a BindRequest in a request Frame.
 func BindFrame(req *BindRequest) *Frame { return &Frame{MsgKind: KindBind, Bind: req} }
+
+// BindNodeFrame wraps a BindRequest carrying the actual node type (for the
+// node-type cost true-up).
+func BindNodeFrame(token, jobid, nodeType string) *Frame {
+	return &Frame{MsgKind: KindBind, Bind: &BindRequest{Token: token, JobID: jobid, NodeType: nodeType}}
+}
 
 // SettleFrame wraps a SettleRequest in a request Frame.
 func SettleFrame(req *SettleRequest) *Frame { return &Frame{MsgKind: KindSettle, Settle: req} }

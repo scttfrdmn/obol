@@ -345,3 +345,59 @@ func TestListAsAdmin(t *testing.T) {
 		}
 	}
 }
+
+// TestNodeTypeReprice exercises the #65 node-type cost model end to end on real
+// Slurm: a job in the "priced" partition (node types spr=10, icx=6) escrows the
+// WORST-CASE rate (10) at submit, then the prolog binds with the node's actual
+// type (icx=6 via ActiveFeatures) which reprices the escrow DOWN before the job
+// runs. We observe the worst-case debit at submit, then the reduced debit after
+// the job starts.
+func TestNodeTypeReprice(t *testing.T) {
+	before := showBalance(t, "lab")
+
+	// 1-min job in priced. Worst-case escrow = 10/s * 60s = 600.
+	out := dexec(t, `sbatch --parsable --account=lab --partition=priced --time=1 --wrap="sleep 12"`)
+	jobid := strings.TrimSpace(lastLine(out))
+	if !isNumeric(jobid) {
+		t.Fatalf("sbatch returned no job id: %q", out)
+	}
+
+	// Poll for the worst-case escrow to land (600 below start).
+	sawWorst := false
+	for i := 0; i < 10; i++ {
+		if showBalance(t, "lab") == before-600 {
+			sawWorst = true
+			break
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	if !sawWorst {
+		t.Logf("note: did not catch the worst-case escrow window (balance=%d, want %d) — job may have started fast", showBalance(t, "lab"), before-600)
+	}
+
+	// Once the prolog binds with node-type icx, the escrow reprices to 6/s*60=360.
+	// Poll for the reduced reservation.
+	repriced := false
+	for i := 0; i < 20; i++ {
+		if showBalance(t, "lab") == before-360 {
+			repriced = true
+			break
+		}
+		time.Sleep(time.Second)
+	}
+	if !repriced {
+		t.Errorf("escrow was not repriced to the icx rate: balance=%d, want %d (6/s*60s)", showBalance(t, "lab"), before-360)
+	}
+
+	waitJobGone(t, jobid)
+	time.Sleep(3 * time.Second)
+	// Conservation holds and lab recovers (job billed at the icx rate for its runtime).
+	if s := showAccount(t, "lab"); !strings.Contains(s, "Conservation:  OK") {
+		t.Errorf("conservation not OK after node-type reprice:\n%s", s)
+	}
+	// The log shows the reprice transition.
+	logout := dexec(t, `obol --socket /run/obol/obold.sock log --account lab`)
+	if !strings.Contains(logout, "reprice") {
+		t.Errorf("log missing reprice entry:\n%s", logout)
+	}
+}

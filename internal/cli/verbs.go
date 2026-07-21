@@ -99,13 +99,14 @@ func cmdBind(args []string, out, errOut io.Writer) int {
 	socket := socketFlag(fs)
 	token := fs.String("token", "", "gate token")
 	jobid := fs.String("jobid", "", "Slurm job id")
+	nodeType := fs.String("node-type", "", "actual node type (triggers the cost true-up)")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
 	if *token == "" || *jobid == "" {
 		return fail(errOut, fmt.Errorf("--token and --jobid are required"))
 	}
-	resp, err := roundTrip(*socket, wire.BindFrame(&wire.BindRequest{Token: *token, JobID: *jobid}))
+	resp, err := roundTrip(*socket, wire.BindNodeFrame(*token, *jobid, *nodeType))
 	if err != nil {
 		return fail(errOut, err)
 	}
