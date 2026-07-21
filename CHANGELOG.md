@@ -8,6 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Node-type cost true-up at dispatch (issue #65): `BIND` now carries the actual node type
+  (`BindRequest.NodeType`); when node-type pricing is configured, the daemon reprices the escrow
+  from the worst-case estimate down to the bound node's rate — via the kernel `Reprice` transition,
+  before `Start`. The prolog resolves the node type from `SLURM_JOB_NODELIST → ActiveFeatures` (or
+  `OBOL_NODETYPE`) and passes `obol bind --node-type`. Validated end-to-end on real Slurm 22.05: a
+  job escrows the worst-case rate at submit, reprices down when placed, and settles at the trued
+  rate (`obol log` shows submit → reprice → start → settle). `docs/SEAM_DESIGN.md` §5 updated.
 - Node-type cost config + worst-case escrow (issue #65): `obold -config` gains `node_types`
   (name → rate, expressible per `s`/`m`/`h` — normalized to integer units/second at load, with a
   clear error if a rate doesn't divide cleanly) and `partitions` (name → the node types it can

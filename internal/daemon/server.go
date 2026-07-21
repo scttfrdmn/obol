@@ -216,6 +216,20 @@ func (s *Server) handleBind(req *wire.BindRequest) *wire.Frame {
 	s.jobToToken[req.JobID] = req.Token
 	s.mu.Unlock()
 
+	// Node-type cost true-up (issue #65): the gate escrowed the partition's
+	// worst-case node rate; now Slurm has bound a real node, reprice to its rate
+	// BEFORE Start (the rate commits into rLive/burst at Start). Only applies when
+	// node-type pricing is configured and the bound node type has a known rate;
+	// Reprice only ever lowers (worst >= actual). A no-op / unknown node type
+	// keeps the worst-case escrow. Best-effort: a reprice failure (e.g. the node
+	// rate isn't actually lower — misconfig) is logged-by-return but does not fail
+	// the bind, since the worst-case escrow is already safe.
+	if req.NodeType != "" && s.nodeCost.enabled() {
+		if rate := s.nodeCost.rate(req.NodeType); rate > 0 {
+			_ = bd.Reprice(req.Token, rate, s.now()) // safe to ignore: worst-case stands on failure
+		}
+	}
+
 	// Start is best-effort: a 1:1 escrow transitions pending→running; an array
 	// token has no 1:1 escrow, so ErrNoSuchJob here is expected and ignored.
 	if err := bd.Start(req.Token, s.now()); err != nil && !errors.Is(err, budget.ErrNoSuchJob) {

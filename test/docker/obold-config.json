@@ -1,5 +1,12 @@
 {
   "admin_users": ["root"],
+  "node_types": {
+    "spr": {"rate": 10},
+    "icx": {"rate": 6}
+  },
+  "partitions": [
+    {"name": "priced", "node_types": ["spr", "icx"]}
+  ],
   "accounts": [
     {"name": "lab", "balance": 100000, "rate": 1, "window": "720h"},
     {"name": "lab_smith", "balance": 100000, "rate": 1, "window": "720h"},

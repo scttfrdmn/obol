@@ -55,6 +55,8 @@ func commandKindName(k string) string {
 		return "lapse"
 	case KindTopUp:
 		return "topup"
+	case KindReprice:
+		return "reprice"
 	default:
 		return k
 	}

@@ -36,5 +36,29 @@ if [[ -z "$token" ]]; then
   exit 0
 fi
 
-"$OBOL" --socket "$SOCKET" bind --token "$token" --jobid "$JOBID" || true
+# Node-type cost true-up (issue #65): the prolog runs on the compute node AFTER
+# Slurm has placed the job, so the node type is now known. Resolve it and pass it
+# to bind so the daemon reprices the escrow from the worst-case estimate down to
+# this node's actual rate. Resolution order:
+#   1) OBOL_NODETYPE env (set per-node, e.g. via a NodeName->type table in the
+#      node's environment or a gres/features mapping)
+#   2) the node's Slurm "Features" (first feature), if scontrol is available
+# Empty node type => bind without it => the worst-case escrow stands (safe).
+node_type="${OBOL_NODETYPE:-}"
+if [[ -z "$node_type" ]] && command -v scontrol >/dev/null 2>&1; then
+  # Use the node Slurm assigned (SLURM_JOB_NODELIST is set in the prolog env),
+  # not `hostname` — in a container hostname is the container id, not the Slurm
+  # NodeName. Take the first node of the allocation and read its ActiveFeatures.
+  node="${SLURM_JOB_NODELIST:-${SLURM_NODELIST:-}}"
+  if [[ -n "$node" ]] && command -v scontrol >/dev/null 2>&1; then
+    node=$(scontrol show hostnames "$node" 2>/dev/null | head -1)
+    node_type=$(scontrol show node "$node" 2>/dev/null | sed -n 's/.*ActiveFeatures=\([^ ]*\).*/\1/p' | cut -d, -f1)
+  fi
+fi
+
+if [[ -n "$node_type" ]]; then
+  "$OBOL" --socket "$SOCKET" bind --token "$token" --jobid "$JOBID" --node-type "$node_type" || true
+else
+  "$OBOL" --socket "$SOCKET" bind --token "$token" --jobid "$JOBID" || true
+fi
 exit 0
