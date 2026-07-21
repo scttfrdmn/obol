@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-07-20
+
+Daemon-core hardening: the three deferred v0.1.0 items. Group-commit durability
+takes the fsync off the caller's path, a lock-free tier-2 read path keeps
+priority reads from contending the gate, and config durability is resolved as
+immutable-after-creation. No wire-protocol or public-API changes.
+
 ### Added
 - Tier-2 lock-cheap read path (issue #7): every mutation publishes an immutable
   `ReadView{B, burstPot, rLive}` under the lock it already holds; `ReadSnapshot()` loads it
@@ -105,5 +112,6 @@ lock-cheap read path (#7), and config durability (#8).
 - Seam design document (`docs/SEAM_DESIGN.md`) describing the Slurm attachment.
 - Project scaffold: CI (race + lint + coverage), release pipeline, governance.
 
-[Unreleased]: https://github.com/scttfrdmn/obol/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/scttfrdmn/obol/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/scttfrdmn/obol/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/scttfrdmn/obol/releases/tag/v0.1.0
