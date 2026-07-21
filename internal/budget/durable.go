@@ -16,16 +16,44 @@ func (bd *Budget) logCmd(c Command) error {
 	return bd.wal.Append(c)
 }
 
+// BurstConfig enables and bounds the burst token bucket for a budget (issue #14).
+// The zero value leaves burst disabled — NewDurable passes it, so all existing
+// callers are unchanged. Enabled turns the bucket on; CeilingPct sets the pot
+// ceiling as a fraction of B0 (0 < pct <= 1); DrawCap bounds one job's
+// reservation (0 = unlimited).
+type BurstConfig struct {
+	Enabled    bool
+	CeilingPct float64
+	DrawCap    Units
+}
+
 // NewDurable creates a fresh durable budget in dir, writing an initial snapshot
 // (which captures config) and opening an empty WAL. `sync` fdatasyncs every
-// append (production); pass false for throughput in tests.
+// append (production); pass false for throughput in tests. Burst is disabled.
 func NewDurable(dir string, c, b0, ts, te Units, sync bool) (*Budget, error) {
+	return NewDurableBurst(dir, c, b0, ts, te, sync, BurstConfig{})
+}
+
+// NewDurableBurst is NewDurable with burst config. The burst fields are set on
+// the budget BEFORE the initial snapshot is written — this is load-bearing:
+// burst config is persisted ONLY in the snapshot (there is no WAL command for
+// it), and obold does not snapshot on shutdown, so a config applied after the
+// offset-0 snapshot would be lost on the next restart (the snapshot would still
+// say disabled and WAL replay would never re-enable it). Setting it here keeps
+// recovery correct from the very first snapshot.
+func NewDurableBurst(dir string, c, b0, ts, te Units, sync bool, bc BurstConfig) (*Budget, error) {
 	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return nil, err
 	}
 	bd := New(c, b0, ts, te)
 	bd.dir = dir
-	// Initial snapshot at WAL offset 0.
+	if bc.Enabled {
+		bd.BurstEnabled = true
+		bd.BurstCeilingPct = bc.CeilingPct
+		bd.BurstDrawCap = bc.DrawCap
+		bd.publishLocked() // refresh the tier-2 view with the burst config
+	}
+	// Initial snapshot at WAL offset 0 — now captures the burst config above.
 	if err := saveSnapshot(dir, bd.captureSnapshot(0)); err != nil {
 		return nil, err
 	}

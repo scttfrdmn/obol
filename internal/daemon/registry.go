@@ -133,7 +133,7 @@ func (r *Registry) create(a AccountConfig) error {
 		}
 		start := r.now()
 		secs := budget.Seconds(win / time.Second)
-		if bd, err = budget.NewDurable(dir, a.Rate, a.Balance, start, start+secs, r.sync); err != nil {
+		if bd, err = budget.NewDurableBurst(dir, a.Rate, a.Balance, start, start+secs, r.sync, a.burstConfig()); err != nil {
 			return err
 		}
 	}

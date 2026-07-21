@@ -8,6 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Burst is now configurable per account in `obold-config.json`: `burst_enabled`,
+  `burst_ceiling_pct` (0–1, pot ceiling as a fraction of the allocation), and
+  `burst_draw_cap` (max tokens one job may reserve). Enabling burst lets jobs bank
+  idle capacity and later dispatch above the sustainable rate (concurrency
+  shaping; burst is permission, not money). Config is applied before the initial
+  snapshot so it survives a restart. New kernel constructor `NewDurableBurst`
+  (#14). Runtime-created accounts (`obol create`) remain non-burst for now.
 - Kernel `Budget.MayDispatch` — a lock-free burst dispatch query answering "would
   this job get the burst headroom to start now, or must it hold?" for the
   `site_factor` priority path (#14). It reads the tier-2 `ReadView` (extended to
