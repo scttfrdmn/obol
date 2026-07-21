@@ -156,13 +156,15 @@ func TestFundedJobLifecycle(t *testing.T) {
 	}
 
 	waitJobGone(t, jobid)
-	time.Sleep(2 * time.Second) // let the epilog settle
+	time.Sleep(3 * time.Second) // let the controller-side jobcomp feed settle
 
 	// After settle: only the ~3s runtime is consumed, the tail refunded, so the
 	// balance is close to `before` (within the few seconds actually run).
+	// Settlement here is driven by the jobcomp/script feed (#13) — no epilog is
+	// installed in this image, so a refund here proves the controller-side path.
 	afterSettle := showBalance(t)
 	if afterSettle <= afterSubmit {
-		t.Errorf("after settle balance = %d, expected refund above %d", afterSettle, afterSubmit)
+		t.Errorf("after settle balance = %d, expected refund above %d (jobcomp feed)", afterSettle, afterSubmit)
 	}
 	if afterSettle > before {
 		t.Errorf("after settle balance = %d exceeds original %d (over-refund)", afterSettle, before)
@@ -172,6 +174,10 @@ func TestFundedJobLifecycle(t *testing.T) {
 	show := dexec(t, `obol --socket /run/obol/obold.sock show`)
 	if !strings.Contains(show, "Conservation:  OK") {
 		t.Errorf("conservation not OK:\n%s", show)
+	}
+	// No live escrows means the job was fully settled by jobcomp.
+	if !strings.Contains(show, "Live:          0 escrows") {
+		t.Errorf("job not settled by jobcomp feed:\n%s", show)
 	}
 }
 

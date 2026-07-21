@@ -44,13 +44,15 @@ COPY seam/lua/obol_transport.lua /etc/slurm/lua/obol_transport.lua
 COPY seam/lua/job_submit.lua     /etc/slurm/job_submit.lua
 COPY seam/slurm/obol-prolog.sh   /usr/local/bin/obol-prolog.sh
 COPY seam/slurm/obol-epilog.sh   /usr/local/bin/obol-epilog.sh
+COPY seam/slurm/obol-jobcomp.sh  /usr/local/bin/obol-jobcomp.sh
 
 # The obol binaries, built on the host into test/docker/bin/ before docker build.
 COPY test/docker/bin/obold /usr/local/bin/obold
 COPY test/docker/bin/obol  /usr/local/bin/obol
 
 RUN chmod +x /usr/local/bin/entrypoint.sh /usr/local/bin/obol-prolog.sh \
-      /usr/local/bin/obol-epilog.sh /usr/local/bin/obold /usr/local/bin/obol \
+      /usr/local/bin/obol-epilog.sh /usr/local/bin/obol-jobcomp.sh \
+      /usr/local/bin/obold /usr/local/bin/obol \
  && chown slurm:slurm /etc/slurm/slurmdbd.conf && chmod 600 /etc/slurm/slurmdbd.conf
 
 # slurm.conf points JobSubmitPlugins at /etc/slurm/job_submit.lua; the lua module

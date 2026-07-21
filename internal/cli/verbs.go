@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"strings"
 
 	"github.com/scttfrdmn/obol/internal/wire"
 )
@@ -121,6 +122,7 @@ func cmdSettle(args []string, out, errOut io.Writer) int {
 	kind := fs.String("kind", "", "complete|timeout|cancel|infrafail")
 	runtime := fs.Int64("runtime", 0, "runtime seconds (complete)")
 	elapsed := fs.Int64("elapsed", 0, "elapsed seconds (cancel/infrafail)")
+	ifPresent := fs.Bool("if-present", false, "treat an unknown/already-settled job as a no-op success (for jobcomp/epilog hooks that may double-fire)")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -138,7 +140,15 @@ func cmdSettle(args []string, out, errOut io.Writer) int {
 		return fail(errOut, err)
 	}
 	if resp.SettleResp == nil || !resp.SettleResp.OK {
-		return fail(errOut, fmt.Errorf("settle rejected: %s", reasonOf(resp)))
+		reason := reasonOf(resp)
+		// A settle for a job with no live escrow means it was already settled (or
+		// never gated). With --if-present that is the expected, benign case for a
+		// completion hook that may fire after another path already settled.
+		if *ifPresent && isAlreadySettled(reason) {
+			pl(out, "already settled")
+			return 0
+		}
+		return fail(errOut, fmt.Errorf("settle rejected: %s", reason))
 	}
 	pl(out, "ok")
 	return 0
@@ -159,6 +169,14 @@ func parseSettleKind(s string) (wire.SettleKind, error) {
 	default:
 		return "", fmt.Errorf("--kind must be complete|timeout|cancel|infrafail, got %q", s)
 	}
+}
+
+// isAlreadySettled reports whether a settle-rejection reason means "no live
+// escrow for this job" — i.e. it was already settled or never gated. Matches the
+// kernel's ErrNoSuchJob ("no such escrow") and the daemon's unbound-jobid text.
+func isAlreadySettled(reason string) bool {
+	return strings.Contains(reason, "no such escrow") ||
+		strings.Contains(reason, "unknown job")
 }
 
 func reasonOf(resp *wire.Frame) string {
