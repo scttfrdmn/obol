@@ -131,6 +131,10 @@ func (bd *Budget) applyCommand(c Command) error {
 		return bd.TopUp(c.Amount, c.Now)
 	case KindReprice:
 		return bd.Reprice(c.JobID, c.C, c.Now)
+	case KindSetRate:
+		return bd.SetRate(c.C, c.Now)
+	case KindSetWindow:
+		return bd.SetWindow(c.TS, c.TE, c.Now)
 	default:
 		return fmt.Errorf("unknown command kind %q", c.Kind)
 	}

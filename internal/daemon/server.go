@@ -137,6 +137,10 @@ func (s *Server) dispatch(req *wire.Frame, peer PeerCred) *wire.Frame {
 		return s.handleList(peer)
 	case wire.KindLog:
 		return s.handleLog(req.Log, peer)
+	case wire.KindSetRate:
+		return s.handleSetRate(req.SetRate, peer)
+	case wire.KindSetWindow:
+		return s.handleSetWindow(req.SetWindow, peer)
 	case wire.KindPing:
 		return wire.PingFrame() // echo: liveness only
 	default:
@@ -397,12 +401,48 @@ func (s *Server) handleLog(req *wire.LogRequest, peer PeerCred) *wire.Frame {
 		rows = append(rows, wire.LogEntry{
 			Kind: e.Kind, JobID: e.JobID, ArrayID: e.ArrayID, Idx: e.Idx, N: e.N,
 			Rate: e.Rate, W: e.W, Runtime: e.Runtime, Elapsed: e.Elapsed,
-			Amount: e.Amount, Now: e.Now,
+			Amount: e.Amount, TS: e.TS, TE: e.TE, Now: e.Now,
 		})
 	}
 	return &wire.Frame{MsgKind: wire.KindLog, LogResp: &wire.LogResponse{
 		OK: true, Account: account, Entries: rows,
 	}}
+}
+
+// handleSetRate changes an account's flat cost rate. Mutating verb → admin only.
+func (s *Server) handleSetRate(req *wire.SetRateRequest, peer PeerCred) *wire.Frame {
+	if req == nil {
+		return ackReject("empty set-rate request")
+	}
+	if ok, reason := s.requireAdmin(peer); !ok {
+		return ackReject(reason)
+	}
+	bd, err := s.reg.Resolve(req.Account)
+	if err != nil {
+		return ackReject(err.Error())
+	}
+	if err := bd.SetRate(req.Rate, s.now()); err != nil {
+		return ackReject(err.Error())
+	}
+	return &wire.Frame{MsgKind: wire.KindSetRate, AckResp: &wire.AckResponse{OK: true}}
+}
+
+// handleSetWindow changes an account's time window. Mutating verb → admin only.
+func (s *Server) handleSetWindow(req *wire.SetWindowRequest, peer PeerCred) *wire.Frame {
+	if req == nil {
+		return ackReject("empty set-window request")
+	}
+	if ok, reason := s.requireAdmin(peer); !ok {
+		return ackReject(reason)
+	}
+	bd, err := s.reg.Resolve(req.Account)
+	if err != nil {
+		return ackReject(err.Error())
+	}
+	if err := bd.SetWindow(req.TS, req.TE, s.now()); err != nil {
+		return ackReject(err.Error())
+	}
+	return &wire.Frame{MsgKind: wire.KindSetWindow, AckResp: &wire.AckResponse{OK: true}}
 }
 
 // mintToken returns a unique, unforgeable correlation token. The "budget:" prefix
@@ -433,4 +473,8 @@ func topUpReject(reason string) *wire.Frame {
 
 func logReject(reason string) *wire.Frame {
 	return &wire.Frame{MsgKind: wire.KindLog, LogResp: &wire.LogResponse{OK: false, Reason: reason}}
+}
+
+func ackReject(reason string) *wire.Frame {
+	return &wire.Frame{MsgKind: wire.KindSetRate, AckResp: &wire.AckResponse{OK: false, Reason: reason}}
 }

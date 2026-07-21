@@ -21,6 +21,8 @@ type LogEntry struct {
 	Runtime Seconds // billed runtime (complete/*-task)
 	Elapsed Seconds // elapsed (cancel/infrafail)
 	Amount  Units   // top-up amount
+	TS      Seconds // window start (set-window)
+	TE      Seconds // window end (set-window)
 	Now     Seconds // logical clock at the transition
 }
 
@@ -57,6 +59,10 @@ func commandKindName(k string) string {
 		return "topup"
 	case KindReprice:
 		return "reprice"
+	case KindSetRate:
+		return "set-rate"
+	case KindSetWindow:
+		return "set-window"
 	default:
 		return k
 	}
@@ -91,6 +97,8 @@ func ReadLog(dir string) ([]LogEntry, error) {
 			Runtime: c.Runtime,
 			Elapsed: c.Elapsed,
 			Amount:  c.Amount,
+			TS:      c.TS,
+			TE:      c.TE,
 			Now:     c.Now,
 		})
 		return nil

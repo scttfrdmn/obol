@@ -169,3 +169,41 @@ func TestAuthzOffWhenNoAdmins(t *testing.T) {
 		t.Error("reads should be open when enforcement is off")
 	}
 }
+
+// TestSetRateWindowAdminGated confirms set-rate/set-window require admin (like
+// topup) and route to the right account.
+func TestSetRateWindowAdminGated(t *testing.T) {
+	srv := newAdminServer(t) // admins = {alice(uid10), group ops(uid11)}; mallory=13
+	smith, _ := srv.reg.Resolve("lab_smith")
+
+	// Non-admin rejected, no change.
+	if r := srv.handleSetRate(&wire.SetRateRequest{Account: "lab_smith", Rate: 9}, adminPeer(13)); r.AckResp == nil || r.AckResp.OK {
+		t.Errorf("non-admin set-rate should be rejected, got %+v", r.AckResp)
+	}
+	if smith.Report(testNow()).C == 9 {
+		t.Error("rate changed by a non-admin")
+	}
+	// Admin allowed.
+	if r := srv.handleSetRate(&wire.SetRateRequest{Account: "lab_smith", Rate: 9}, adminPeer(10)); r.AckResp == nil || !r.AckResp.OK {
+		t.Fatalf("admin set-rate rejected: %+v", r.AckResp)
+	}
+	if smith.Report(testNow()).C != 9 {
+		t.Errorf("rate = %d, want 9 after admin set-rate", smith.Report(testNow()).C)
+	}
+
+	// set-window: admin allowed, non-admin rejected.
+	if r := srv.handleSetWindow(&wire.SetWindowRequest{Account: "lab_smith", TS: 0, TE: 5_000_000}, adminPeer(13)); r.AckResp == nil || r.AckResp.OK {
+		t.Errorf("non-admin set-window should be rejected")
+	}
+	if r := srv.handleSetWindow(&wire.SetWindowRequest{Account: "lab_smith", TS: 0, TE: 5_000_000}, adminPeer(11)); r.AckResp == nil || !r.AckResp.OK {
+		t.Fatalf("group-admin set-window rejected: %+v", r.AckResp)
+	}
+	if smith.Report(testNow()).TE != 5_000_000 {
+		t.Errorf("TE = %d, want 5000000", smith.Report(testNow()).TE)
+	}
+
+	// Unknown account rejected.
+	if r := srv.handleSetRate(&wire.SetRateRequest{Account: "ghost", Rate: 1}, adminPeer(10)); r.AckResp == nil || r.AckResp.OK {
+		t.Errorf("set-rate on unknown account should be rejected")
+	}
+}

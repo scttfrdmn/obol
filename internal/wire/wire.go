@@ -45,14 +45,16 @@ type Kind string
 // Message kinds. Request kinds name a lifecycle event; each response echoes the
 // request kind so a caller multiplexing on one connection can correlate.
 const (
-	KindGate   Kind = "gate"
-	KindBind   Kind = "bind"
-	KindSettle Kind = "settle"
-	KindPing   Kind = "ping"
-	KindStatus Kind = "status"
-	KindTopUp  Kind = "topup"
-	KindList   Kind = "list"
-	KindLog    Kind = "log"
+	KindGate      Kind = "gate"
+	KindBind      Kind = "bind"
+	KindSettle    Kind = "settle"
+	KindPing      Kind = "ping"
+	KindStatus    Kind = "status"
+	KindTopUp     Kind = "topup"
+	KindList      Kind = "list"
+	KindLog       Kind = "log"
+	KindSetRate   Kind = "set_rate"
+	KindSetWindow Kind = "set_window"
 )
 
 // SettleKind names how a job ended, routing to the matching kernel transition.
@@ -202,6 +204,26 @@ type ListResponse struct {
 	Accounts []ListAccount `json:"accounts,omitempty"`
 }
 
+// SetRateRequest changes an account's flat cost rate (admin-only).
+type SetRateRequest struct {
+	Account string `json:"account"`
+	Rate    int64  `json:"rate"`
+}
+
+// SetWindowRequest changes an account's time window (admin-only). TS/TE are
+// epoch seconds.
+type SetWindowRequest struct {
+	Account string `json:"account"`
+	TS      int64  `json:"ts"`
+	TE      int64  `json:"te"`
+}
+
+// AckResponse is a generic ok/reason acknowledgement for config-mutation verbs.
+type AckResponse struct {
+	OK     bool   `json:"ok"`
+	Reason string `json:"reason,omitempty"`
+}
+
 // LogRequest asks for the audit log (WAL render) of an account's budget.
 type LogRequest struct {
 	Account string `json:"account,omitempty"`
@@ -219,6 +241,8 @@ type LogEntry struct {
 	Runtime int64  `json:"runtime,omitempty"`
 	Elapsed int64  `json:"elapsed,omitempty"`
 	Amount  int64  `json:"amount,omitempty"`
+	TS      int64  `json:"ts,omitempty"`
+	TE      int64  `json:"te,omitempty"`
 	Now     int64  `json:"now,omitempty"`
 }
 
@@ -238,13 +262,15 @@ type Frame struct {
 	MsgKind Kind `json:"k"`
 
 	// Requests (one populated per request frame).
-	Gate   *GateRequest   `json:"gate,omitempty"`
-	Bind   *BindRequest   `json:"bind,omitempty"`
-	Settle *SettleRequest `json:"settle,omitempty"`
-	Status *StatusRequest `json:"status,omitempty"`
-	TopUp  *TopUpRequest  `json:"topup,omitempty"`
-	List   *ListRequest   `json:"list,omitempty"`
-	Log    *LogRequest    `json:"log,omitempty"`
+	Gate      *GateRequest      `json:"gate,omitempty"`
+	Bind      *BindRequest      `json:"bind,omitempty"`
+	Settle    *SettleRequest    `json:"settle,omitempty"`
+	Status    *StatusRequest    `json:"status,omitempty"`
+	TopUp     *TopUpRequest     `json:"topup,omitempty"`
+	List      *ListRequest      `json:"list,omitempty"`
+	Log       *LogRequest       `json:"log,omitempty"`
+	SetRate   *SetRateRequest   `json:"set_rate,omitempty"`
+	SetWindow *SetWindowRequest `json:"set_window,omitempty"`
 
 	// Responses (one populated per response frame).
 	GateResp   *GateResponse   `json:"gate_resp,omitempty"`
@@ -254,6 +280,7 @@ type Frame struct {
 	TopUpResp  *TopUpResponse  `json:"topup_resp,omitempty"`
 	ListResp   *ListResponse   `json:"list_resp,omitempty"`
 	LogResp    *LogResponse    `json:"log_resp,omitempty"`
+	AckResp    *AckResponse    `json:"ack_resp,omitempty"`
 }
 
 // Sentinel errors surfaced by decode. ErrVersion is distinguished so a caller
@@ -359,4 +386,14 @@ func ListFrame() *Frame { return &Frame{MsgKind: KindList, List: &ListRequest{}}
 // LogFrame wraps a LogRequest in a request Frame.
 func LogFrame(account string) *Frame {
 	return &Frame{MsgKind: KindLog, Log: &LogRequest{Account: account}}
+}
+
+// SetRateFrame wraps a SetRateRequest in a request Frame.
+func SetRateFrame(account string, rate int64) *Frame {
+	return &Frame{MsgKind: KindSetRate, SetRate: &SetRateRequest{Account: account, Rate: rate}}
+}
+
+// SetWindowFrame wraps a SetWindowRequest in a request Frame.
+func SetWindowFrame(account string, ts, te int64) *Frame {
+	return &Frame{MsgKind: KindSetWindow, SetWindow: &SetWindowRequest{Account: account, TS: ts, TE: te}}
 }

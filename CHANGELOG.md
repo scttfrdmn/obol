@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `obol set-rate` / `obol set-window` — live budget config mutation (issue #20): admins can change
+  an account's flat cost rate and time window without a restart. These are the first **logged
+  config transitions**, satisfying the issue #8 design: `SetRate`/`SetWindow` are WAL commands
+  replayed in order, so a submit before a change replays at the old value and one after at the new
+  — never a snapshot-only change. `set-rate` affects future flat-rate submits only (live escrows
+  keep the rate they froze at submit); `set-window` gates future submits while live escrows settle
+  normally across the change. Both leave the money ledger untouched (conservation preserved),
+  are admin-gated by peer credentials, and render in `obol log`. `set-window` accepts
+  `--window <dur>` or explicit `--start/--end` (RFC3339 or epoch). Runtime account *creation* is
+  deferred to #70. Validated end-to-end.
+
 ## [0.5.0] - 2026-07-21
 
 Node-type cost model + audit log. Cost now attaches to the node Slurm binds: a
