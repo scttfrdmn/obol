@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- WAL group commit (issue #6): `Append` writes the record to the page cache and returns; a
+  background committer batches `fdatasync`s off the caller's path, so the fsync no longer serializes
+  behind each append (the GATE ack returns after the in-memory escrow; durability lands a hair
+  later). `Flush`/`Close` are synchronous durability barriers, and a failed background fsync is
+  sticky and surfaced. The torn-tail discipline (invariant #4) and crash recovery are preserved —
+  covered by concurrency (`-race`), recovery, and torn-tail tests.
+
 ### Changed
 - Config durability (issue #8) resolved as **immutable-after-creation**: cost rate, window, and
   policy flags are set at creation, captured in the snapshot, and survive recovery unchanged —

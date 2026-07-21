@@ -338,8 +338,11 @@ conservation and concurrency properties are already proven.
    blocker for Gen 1.
 2. **Submit→start orphan window** — handled by an unbound-token TTL, which is designed but not
    yet built into the janitor.
-3. **Group commit** — the off-lock durability batching is designed (§3) but not yet implemented;
-   the current WAL `fsync`s under its own lock.
+3. **Group commit** — *resolved (issue #6).* `Append` writes the record to the page cache and
+   returns; a background committer batches `fsync`s off the caller's path (while one slow `fsync`
+   is in flight, more appends accumulate and the next `fsync` covers them all). The torn-tail
+   discipline is preserved — a crash before the `fsync` loses the un-synced tail and the caller's
+   still-in-memory mutation together. `Flush`/`Close` are synchronous durability barriers.
 4. **Config durability** — *resolved (issue #8).* Config (cost rate, window, policy flags) is set
    at creation, captured in the snapshot, and **immutable thereafter**; it is durable as-is, proven
    by a recovery test. If mutation is ever added it must be a logged command applied through the
