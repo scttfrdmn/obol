@@ -340,9 +340,10 @@ conservation and concurrency properties are already proven.
    yet built into the janitor.
 3. **Group commit** — the off-lock durability batching is designed (§3) but not yet implemented;
    the current WAL `fsync`s under its own lock.
-4. **Config durability** — the kernel's policy flags persist only via snapshot, not as logged
-   commands. Either config changes become logged commands, or budget config is immutable after
-   creation. Undecided.
+4. **Config durability** — *resolved (issue #8).* Config (cost rate, window, policy flags) is set
+   at creation, captured in the snapshot, and **immutable thereafter**; it is durable as-is, proven
+   by a recovery test. If mutation is ever added it must be a logged command applied through the
+   replay path (never snapshot-only), to preserve the pure-`(state, command, now)` invariant.
 5. **Hierarchy / multi-budget resolution** — §9 describes it; the kernel today proves only the
    single-budget core. Real model scope still to re-expand.
 6. **Tier-2 read path** — the copy-on-write snapshot for lock-cheap priority reads is designed but

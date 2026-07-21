@@ -66,7 +66,13 @@ type Budget struct {
 
 	B0 Units // original allocation, for the conservation check
 
-	// Policy flags (per budget).
+	// Policy flags (per budget). These, along with C/TS/TE above, are CONFIG:
+	// set at creation, captured in the initial snapshot, and immutable thereafter
+	// (issue #8). They are not logged commands, so WAL replay never changes them.
+	// If mutation is ever added (e.g. an `obol set-rate` verb), it MUST be a
+	// logged command applied through the replay path — a snapshot-only change
+	// would lose its ordering against the command stream and break the
+	// pure-(state, command, now) replay invariant.
 	BillInfraFailures bool    // on = cloud (user pays infra loss); off = on-prem (write off)
 	AllowRequeue      bool    // on = on-prem; off = cloud (requeue -> cancel)
 	K                 float64 // burst ceiling multiplier; <=0 means infinite (disabled)

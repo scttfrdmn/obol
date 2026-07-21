@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Config durability (issue #8) resolved as **immutable-after-creation**: cost rate, window, and
+  policy flags are set at creation, captured in the snapshot, and survive recovery unchanged —
+  documented in code and `SEAM_DESIGN.md` §13.4, with a recovery test asserting every config
+  field survives a snapshot + WAL-replay cycle. Any future config mutation must be a logged
+  command, never snapshot-only.
+
 ## [0.1.0] - 2026-07-20
 
 First tagged release: the obold MVP. A working, validated money-gate for Slurm —
