@@ -42,6 +42,7 @@ type snapshot struct {
 
 type escrowSnap struct {
 	JobID     string  `json:"j"`
+	C         Units   `json:"c,omitempty"`
 	Reserved  Units   `json:"res"`
 	W         Seconds `json:"w"`
 	Started   bool    `json:"s"`
@@ -77,7 +78,7 @@ func (bd *Budget) captureSnapshot(walOffset int64) snapshot {
 		WALOffset: walOffset,
 	}
 	for _, e := range bd.escrows {
-		s.Escrows = append(s.Escrows, escrowSnap{e.JobID, e.Reserved, e.W, e.Started, e.BurstResv})
+		s.Escrows = append(s.Escrows, escrowSnap{e.JobID, e.C, e.Reserved, e.W, e.Started, e.BurstResv})
 	}
 	for _, ae := range bd.arrays {
 		as := arraySnap{ae.ArrayID, ae.C, ae.W, ae.N, ae.Remaining, ae.Reserved, nil}
@@ -102,7 +103,7 @@ func budgetFromSnapshot(s snapshot) *Budget {
 		arrays:  make(map[string]*ArrayEscrow),
 	}
 	for _, e := range s.Escrows {
-		bd.escrows[e.JobID] = &Escrow{JobID: e.JobID, Reserved: e.Reserved, W: e.W, Started: e.Started, BurstResv: e.BurstResv}
+		bd.escrows[e.JobID] = &Escrow{JobID: e.JobID, C: e.C, Reserved: e.Reserved, W: e.W, Started: e.Started, BurstResv: e.BurstResv}
 	}
 	for _, as := range s.Arrays {
 		ae := &ArrayEscrow{ArrayID: as.ArrayID, C: as.C, W: as.W, N: as.N, Remaining: as.Remaining, Reserved: as.Reserved, tasks: make(map[int]*taskState)}

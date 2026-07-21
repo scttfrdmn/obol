@@ -46,6 +46,7 @@ const (
 // job. reserved is what was debited at submit; w is the funded walltime.
 type Escrow struct {
 	JobID     string
+	C         Units // per-job cost rate, frozen at submit (mirrors ArrayEscrow.C)
 	Reserved  Units
 	W         Seconds
 	Started   bool
@@ -132,9 +133,18 @@ func (bd *Budget) rateOK(cost Units, now Seconds) bool {
 	return float64(bd.ReservedTotal+cost) <= bd.K*r // aggregate, not per-job
 }
 
-// Submit is THE GATE. Atomic: both inequalities and both counter mutations
-// happen under one lock. Returns the live escrow on success.
+// Submit is THE GATE at the budget's flat rate bd.C. It is the c==bd.C case of
+// SubmitAt, kept as the stable entry point for callers that don't weight cost.
 func (bd *Budget) Submit(jobID string, w Seconds, now Seconds) error {
+	return bd.SubmitAt(jobID, 0, w, now) // c<=0 => use bd.C
+}
+
+// SubmitAt is THE GATE with a per-job cost rate c (units/second). c<=0 falls
+// back to the budget's flat rate bd.C, so Submit and every existing caller are
+// unchanged. The rate is frozen into the escrow and logged, so settle/refund and
+// WAL replay all use the same c. Atomic: both inequalities and both counter
+// mutations happen under one lock.
+func (bd *Budget) SubmitAt(jobID string, c, w Seconds, now Seconds) error {
 	bd.mu.Lock()
 	defer bd.mu.Unlock()
 	defer bd.publishLocked() // refresh tier-2 read view before releasing the lock
@@ -148,7 +158,10 @@ func (bd *Budget) Submit(jobID string, w Seconds, now Seconds) error {
 	if _, dup := bd.escrows[jobID]; dup {
 		return ErrBadState
 	}
-	cost := bd.C * w
+	if c <= 0 {
+		c = bd.C
+	}
+	cost := c * w
 	if cost > bd.B { // solvency
 		return ErrInsufficient
 	}
@@ -157,12 +170,12 @@ func (bd *Budget) Submit(jobID string, w Seconds, now Seconds) error {
 	}
 	// Money escrow only. Burst is reserved at dispatch (Start), not submit,
 	// because burst is a concurrency property and concurrency isn't known yet.
-	if err := bd.logCmd(Command{Kind: KindSubmit, JobID: jobID, W: w, Now: now}); err != nil {
+	if err := bd.logCmd(Command{Kind: KindSubmit, JobID: jobID, C: c, W: w, Now: now}); err != nil {
 		return err
 	}
 	bd.B -= cost
 	bd.ReservedTotal += cost
-	bd.escrows[jobID] = &Escrow{JobID: jobID, Reserved: cost, W: w}
+	bd.escrows[jobID] = &Escrow{JobID: jobID, C: c, Reserved: cost, W: w}
 	return nil
 }
 
@@ -184,7 +197,7 @@ func (bd *Budget) Start(jobID string, now Seconds) error {
 	// excess*w tokens from the bank. If it can't, the job waits (caller retries).
 	if bd.BurstEnabled {
 		bd.accrue(now)
-		resv := bd.burstReserveFor(e.W)
+		resv := bd.burstReserveForRate(e.C, e.W) // per-job rate, not the flat bd.C
 		if resv > 0 {
 			if bd.BurstDrawCap > 0 && resv > bd.BurstDrawCap {
 				return ErrBurstDrawCap
@@ -197,11 +210,11 @@ func (bd *Budget) Start(jobID string, now Seconds) error {
 			}
 			bd.burstPot -= resv
 			e.BurstResv = resv
-			bd.rLive += bd.C
+			bd.rLive += e.C
 			e.Started = true
 			return nil
 		}
-		bd.rLive += bd.C
+		bd.rLive += e.C
 	}
 	if err := bd.logCmd(Command{Kind: KindStart, JobID: jobID, Now: now}); err != nil {
 		return err
@@ -226,7 +239,7 @@ func (bd *Budget) settle(jobID string, runtime Seconds, writeOff bool, now Secon
 	if runtime > e.W {
 		runtime = e.W
 	}
-	used := bd.C * runtime
+	used := e.C * runtime
 	refund := e.Reserved - used // = c*(w-runtime), >=0
 
 	bd.ReservedTotal -= e.Reserved
@@ -237,11 +250,11 @@ func (bd *Budget) settle(jobID string, runtime Seconds, writeOff bool, now Secon
 		bd.Consumed += used
 	}
 
-	// Burst: if this job was dispatched (Started), it was burning at C over the
+	// Burst: if this job was dispatched (Started), it was burning at e.C over the
 	// interval just ended. Accrue with it still counted, then drop it from rLive
 	// and refund the unused token tail. A job that never started reserved no burst.
 	if bd.BurstEnabled && e.Started {
-		bd.rLive -= bd.C
+		bd.rLive -= e.C
 		if bd.rLive < 0 {
 			bd.rLive = 0
 		}

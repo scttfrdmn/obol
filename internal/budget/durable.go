@@ -101,7 +101,7 @@ func (bd *Budget) Close() error {
 func (bd *Budget) applyCommand(c Command) error {
 	switch c.Kind {
 	case KindSubmit:
-		return bd.Submit(c.JobID, c.W, c.Now)
+		return bd.SubmitAt(c.JobID, c.C, c.W, c.Now)
 	case KindStart:
 		return bd.Start(c.JobID, c.Now)
 	case KindComplete:
@@ -113,7 +113,7 @@ func (bd *Budget) applyCommand(c Command) error {
 	case KindInfraFail:
 		return bd.InfraFail(c.JobID, c.Elapsed, c.Now)
 	case KindSubmitArray:
-		return bd.SubmitArray(c.ArrayID, c.N, c.W, c.Now)
+		return bd.SubmitArrayAt(c.ArrayID, c.C, c.N, c.W, c.Now)
 	case KindStartTask:
 		return bd.StartTask(c.ArrayID, c.Idx, c.Now)
 	case KindCompleteTask:

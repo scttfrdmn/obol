@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- TRES-weighted cost model (issue #12): job cost can now depend on requested resources, not just a
+  flat rate. The kernel gains a per-job rate — `Escrow.C` plus `SubmitAt`/`SubmitArrayAt(c, …)`
+  (c≤0 falls back to the budget's flat `C`, so all existing behavior is unchanged); the rate is
+  frozen per-escrow, logged in the WAL, and restored on recovery. The daemon maps requested TRES to
+  a per-second rate via configured weights (`obold -tres-per-cpu|gpu|mem`, `daemon.Weights`); the
+  Lua shim reads the TRES from `job_desc` and sends it on the GATE request. All-zero weights = flat
+  rate (default). Validated end-to-end on real Slurm (a 2-CPU job billed 2× under a per-CPU weight);
+  covered by kernel per-rate + mixed-rate + recovery tests and daemon weight tests. The
+  dispatch-time true-up for cost-heterogeneous partitions is deferred to v0.3.0 (needs site_factor).
+
 ## [0.1.1] - 2026-07-20
 
 Daemon-core hardening: the three deferred v0.1.0 items. Group-commit durability

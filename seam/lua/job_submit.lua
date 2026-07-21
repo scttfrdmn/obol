@@ -60,13 +60,14 @@ end
 -- gate_decision performs the GATE round-trip and returns (ok, token_or_reason).
 -- On transport failure it returns nil so the caller applies the fail-closed
 -- policy. This function is the whole hot path.
-local function gate_decision(account, partition, uid, time_limit, ntasks)
+local function gate_decision(account, partition, uid, time_limit, ntasks, tres)
   local req = wire.gate_frame({
     account = account or "",
     partition = partition or "",
     uid = uid or 0,
     time_limit = time_limit or 0,
     ntasks = ntasks or 1,
+    tres = tres,
   })
   local resp, err = transport.round_trip(OBOL_SOCKET, wire.encode_frame(req), OBOL_TIMEOUT_MS)
   if not resp then
@@ -94,7 +95,16 @@ function slurm_job_submit(job_desc, part_list, submit_uid)
   end
   local ntasks = 1
 
-  local ok, result = gate_decision(account, partition, submit_uid, tl_seconds, ntasks)
+  -- TRES the job requested, for weighted cost (SEAM_DESIGN §5; wire TRES fields).
+  -- Slurm exposes these as job_desc numbers; coerce to integers, default 0.
+  local function num(v) local n = tonumber(v); return (n and n > 0 and n < 0xFFFFFFFF) and math.floor(n) or 0 end
+  local tres = {
+    cpus = num(job_desc.min_cpus) + 0, -- requested CPUs (min_cpus is the portable field)
+    gpus = num(job_desc.gpus),         -- --gpus; GRES gpu handled site-side if needed
+    mem = num(job_desc.pn_min_memory), -- per-node memory request, MB
+  }
+
+  local ok, result = gate_decision(account, partition, submit_uid, tl_seconds, ntasks, tres)
 
   if ok == nil then
     -- Daemon unreachable: apply the local static fail-closed policy.

@@ -177,6 +177,13 @@ so for cost-heterogeneous partitions the shim escrows worst-case and the daemon 
 job dispatches (tier 2 sees the real allocation). Cost-homogeneous partitions make this exact —
 an argument for encouraging homogeneous-cost partitions.
 
+**Implemented (issue #12):** the shim reads the requested TRES from `job_desc` and sends it on the
+GATE request; the daemon maps it to a per-second rate via configured weights
+(`-tres-per-cpu|gpu|mem`, `daemon.Weights.Rate`) and passes that rate into the kernel's
+`SubmitAt`/`SubmitArrayAt`, which freeze it per-escrow and log it in the WAL. All-zero weights =
+flat rate (the budget's `C`), the default. The dispatch-time true-up for heterogeneous partitions
+is **deferred** — it needs the tier-2/site_factor bind path (v0.3.0), tracked separately.
+
 ---
 
 ## 6. Partition policy: one axis, three booleans

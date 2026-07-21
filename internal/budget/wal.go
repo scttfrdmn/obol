@@ -21,6 +21,7 @@ type Command struct {
 	ArrayID string  `json:"a,omitempty"`
 	Idx     int     `json:"i,omitempty"`
 	N       int     `json:"n,omitempty"`
+	C       Units   `json:"c,omitempty"` // per-job cost rate frozen at submit (0 = budget flat rate)
 	W       Seconds `json:"w,omitempty"`
 	Runtime Seconds `json:"r,omitempty"`
 	Elapsed Seconds `json:"e,omitempty"`
