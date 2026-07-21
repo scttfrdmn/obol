@@ -10,9 +10,13 @@ Two things exist at different maturities:
   per-partition policy flags, lapse, job arrays, and an explicit burst token bucket — all
   holding conservation and non-negativity under the race detector, with crash-safe durability
   (command-logged WAL + snapshot recovery + orphan janitor). This is **built and tested**.
-- **The seam** (this document): how that kernel meets Slurm's plugin surface. This is
-  **designed, not yet built**. The Go daemon described here is the next implementation step;
-  the Lua and `site_factor` pieces require a real cluster (burstlab) to validate.
+- **The seam** (this document): how that kernel meets Slurm's plugin surface. The **daemon
+  (`obold`), the wire protocol, the GATE Lua shim, and the prolog/jobcomp/epilog scripts are
+  built and tested** (the last in a single-node Slurm Docker tier). The **burst dispatch
+  decision** is built and tested too — in the daemon (`obol dispatch` / `handleDispatch` →
+  `Budget.MayDispatch`); the `site_factor` C plugin that calls it ships as **reference source**
+  (`seam/plugin/`), compiled per site against its own Slurm tree and validated on a real
+  cluster (burstlab), since the hook has no Lua binding and can't run in the RPM-based tier.
 
 The seam is targeted at three Slurm minor versions, matching burstlab's generations:
 **22.05, 23.11, 24.05** (Rocky 8/9/10 and Ubuntu 22.04/24.04). Where their plugin ABIs
