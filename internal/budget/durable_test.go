@@ -158,3 +158,64 @@ func TestOrphanJanitor(t *testing.T) {
 		t.Fatalf("ConsumeFull refunded: %d -> %d", balBefore, bd.Balance())
 	}
 }
+
+// TestConfigDurableAcrossRecovery locks in the decision on issue #8: config
+// (cost rate, window, and every policy flag) is set at creation, captured in the
+// snapshot, and survives a snapshot + WAL-replay recovery unchanged. Config is
+// immutable post-creation today; if mutation is ever added it must arrive as a
+// logged command (never snapshot-only), or WAL replay would lose its ordering
+// against the command stream and break the pure-(state,command,now) invariant.
+func TestConfigDurableAcrossRecovery(t *testing.T) {
+	dir := t.TempDir()
+	bd, err := NewDurable(dir, 7, 500000, 100, 200100, false) // c=7, non-zero TS/TE
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Set every policy flag to a non-default value, then snapshot so the initial
+	// snapshot captures them (they are config, not logged commands).
+	bd.BillInfraFailures = true
+	bd.AllowRequeue = true
+	bd.K = 2.5
+	bd.BurstEnabled = true
+	bd.BurstCeilingPct = 0.75
+	bd.BurstDrawCap = 1234
+	if err := bd.Snapshot(); err != nil {
+		t.Fatal(err)
+	}
+
+	// Do some work so recovery also replays a WAL tail past the config snapshot.
+	bd.Submit("j1", 100, 150)
+	bd.Start("j1", 160)
+	bd.Complete("j1", 40, 200)
+	bd.Close()
+
+	rec, err := OpenBudget(dir, false)
+	if err != nil {
+		t.Fatalf("recovery failed: %v", err)
+	}
+
+	// Every config field must match exactly.
+	checks := []struct {
+		name      string
+		got, want any
+	}{
+		{"C", rec.C, Units(7)},
+		{"TS", rec.TS, Seconds(100)},
+		{"TE", rec.TE, Seconds(200100)},
+		{"B0", rec.B0, Units(500000)},
+		{"BillInfraFailures", rec.BillInfraFailures, true},
+		{"AllowRequeue", rec.AllowRequeue, true},
+		{"K", rec.K, 2.5},
+		{"BurstEnabled", rec.BurstEnabled, true},
+		{"BurstCeilingPct", rec.BurstCeilingPct, 0.75},
+		{"BurstDrawCap", rec.BurstDrawCap, Units(1234)},
+	}
+	for _, c := range checks {
+		if c.got != c.want {
+			t.Errorf("config %s not durable: got %v, want %v", c.name, c.got, c.want)
+		}
+	}
+	if ok, sum := rec.ConservationOK(); !ok {
+		t.Errorf("recovered conservation broken: got=%d", sum)
+	}
+}
