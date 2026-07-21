@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 	"time"
+
+	"github.com/scttfrdmn/obol/internal/budget"
 )
 
 // Config is the obold multi-account configuration (obold -config <path>). Each
@@ -85,6 +87,44 @@ type AccountConfig struct {
 	// submitter's user or one of its groups to be listed.
 	AllowUsers  []string `json:"allow_users,omitempty"`
 	AllowGroups []string `json:"allow_groups,omitempty"`
+
+	// Optional burst token bucket (issue #14). Off by default. When enabled, jobs
+	// pushing aggregate burn above the sustainable rate r0 = B0/window must reserve
+	// banked "permission" tokens to dispatch (this is concurrency shaping, not
+	// money — burst is a separate bounded ledger). BurstCeilingPct caps the pot at
+	// a fraction of B0 (0 < pct <= 1); BurstDrawCap bounds one job's reservation
+	// (0 = unlimited).
+	BurstEnabled    bool    `json:"burst_enabled,omitempty"`
+	BurstCeilingPct float64 `json:"burst_ceiling_pct,omitempty"`
+	BurstDrawCap    int64   `json:"burst_draw_cap,omitempty"`
+}
+
+// burstConfig converts the account's burst settings into the kernel's BurstConfig.
+func (a AccountConfig) burstConfig() budget.BurstConfig {
+	return budget.BurstConfig{
+		Enabled:    a.BurstEnabled,
+		CeilingPct: a.BurstCeilingPct,
+		DrawCap:    a.BurstDrawCap,
+	}
+}
+
+// validateBurst checks the burst settings are coherent. Burst fields set with
+// burst_enabled=false are a config error (loud, matching DisallowUnknownFields),
+// not silently ignored.
+func (a AccountConfig) validateBurst() error {
+	if !a.BurstEnabled {
+		if a.BurstCeilingPct != 0 || a.BurstDrawCap != 0 {
+			return fmt.Errorf("account %q: burst_ceiling_pct/burst_draw_cap set but burst_enabled is false", a.Name)
+		}
+		return nil
+	}
+	if a.BurstCeilingPct <= 0 || a.BurstCeilingPct > 1 {
+		return fmt.Errorf("account %q: burst_ceiling_pct must be in (0, 1], got %g", a.Name, a.BurstCeilingPct)
+	}
+	if a.BurstDrawCap < 0 {
+		return fmt.Errorf("account %q: burst_draw_cap must be >= 0", a.Name)
+	}
+	return nil
 }
 
 // windowOrDefault parses Window, defaulting to 30 days.
@@ -147,6 +187,9 @@ func (c *Config) validate() error {
 			return fmt.Errorf("account %q: rate must be positive", a.Name)
 		}
 		if _, err := a.windowOrDefault(); err != nil {
+			return err
+		}
+		if err := a.validateBurst(); err != nil {
 			return err
 		}
 	}

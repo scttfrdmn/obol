@@ -219,6 +219,56 @@ func TestRegistryCreatePersistsAndDiscovers(t *testing.T) {
 	}
 }
 
+// burstConfigForTest returns a config with one burst-enabled account.
+func burstAccountConfig() *Config {
+	return &Config{Accounts: []AccountConfig{
+		{Name: "burstlab", Balance: 100000, Rate: 1, Window: "1000000s",
+			BurstEnabled: true, BurstCeilingPct: 0.5, BurstDrawCap: 2000},
+	}}
+}
+
+// TestRegistryBurstConfigSurvivesRestart is the ordering-bug regression test.
+// Burst config is persisted ONLY in the snapshot (no WAL command), and obold does
+// not snapshot on shutdown — so if registry.create enabled burst AFTER the
+// initial offset-0 snapshot, a restart with no intervening mutation would reload
+// a snapshot that says "disabled" and burst would silently vanish. NewDurableBurst
+// sets it BEFORE the initial snapshot; this test proves the config reaches the
+// budget AND survives a reopen unchanged.
+func TestRegistryBurstConfigSurvivesRestart(t *testing.T) {
+	dir := t.TempDir()
+	reg, err := NewRegistry(burstAccountConfig(), dir, false, testNow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bd, err := reg.Resolve("burstlab")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r := bd.Report(testNow()); !r.BurstEnabled || r.BurstCeiling != 50000 { // 0.5 * 100000
+		t.Fatalf("burst not enabled at create: enabled=%v ceiling=%d", r.BurstEnabled, r.BurstCeiling)
+	}
+	_ = reg.Close() // NB: no snapshot on close, and no mutation happened — the
+	// offset-0 snapshot is the ONLY persisted state.
+
+	// Reopen via discovery (config path doesn't re-create; on-disk state wins).
+	reg2, err := NewRegistry(burstAccountConfig(), dir, false, testNow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = reg2.Close() }()
+	bd2, err := reg2.Resolve("burstlab")
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := bd2.Report(testNow())
+	if !r.BurstEnabled {
+		t.Fatal("burst DISABLED after restart — config lost (ordering bug)")
+	}
+	if r.BurstCeiling != 50000 {
+		t.Errorf("recovered burst ceiling = %d, want 50000", r.BurstCeiling)
+	}
+}
+
 // TestRegistrySetAccessPersists covers attach/detach persistence.
 func TestRegistrySetAccessPersists(t *testing.T) {
 	dir := t.TempDir()

@@ -46,6 +46,10 @@ func TestLoadConfigRejectsBad(t *testing.T) {
 		"zero rate":        `{"accounts":[{"name":"a","balance":1,"rate":0}]}`,
 		"bad window":       `{"accounts":[{"name":"a","balance":1,"rate":1,"window":"nope"}]}`,
 		"unknown field":    `{"accounts":[{"name":"a","balance":1,"rate":1,"bogus":true}]}`,
+		"burst pct zero":   `{"accounts":[{"name":"a","balance":1,"rate":1,"burst_enabled":true,"burst_ceiling_pct":0}]}`,
+		"burst pct over 1": `{"accounts":[{"name":"a","balance":1,"rate":1,"burst_enabled":true,"burst_ceiling_pct":1.5}]}`,
+		"burst cap neg":    `{"accounts":[{"name":"a","balance":1,"rate":1,"burst_enabled":true,"burst_ceiling_pct":0.5,"burst_draw_cap":-1}]}`,
+		"burst off w/ pct": `{"accounts":[{"name":"a","balance":1,"rate":1,"burst_ceiling_pct":0.5}]}`,
 	}
 	for name, body := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -53,5 +57,28 @@ func TestLoadConfigRejectsBad(t *testing.T) {
 				t.Errorf("expected LoadConfig to reject %q", name)
 			}
 		})
+	}
+}
+
+// TestLoadConfigBurstValid confirms a well-formed burst account parses and its
+// burst settings reach the AccountConfig.
+func TestLoadConfigBurstValid(t *testing.T) {
+	p := writeConfig(t, `{
+		"accounts": [
+			{"name": "burstlab", "balance": 100000, "rate": 1, "window": "1000000s",
+			 "burst_enabled": true, "burst_ceiling_pct": 0.5, "burst_draw_cap": 2000}
+		]
+	}`)
+	c, err := LoadConfig(p)
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	a := c.Accounts[0]
+	if !a.BurstEnabled || a.BurstCeilingPct != 0.5 || a.BurstDrawCap != 2000 {
+		t.Errorf("burst settings not parsed: %+v", a)
+	}
+	bc := a.burstConfig()
+	if !bc.Enabled || bc.CeilingPct != 0.5 || bc.DrawCap != 2000 {
+		t.Errorf("burstConfig() = %+v, want enabled 0.5/2000", bc)
 	}
 }
