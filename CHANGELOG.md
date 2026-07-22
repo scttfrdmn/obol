@@ -17,6 +17,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a developer aside). Removed the obsolete top-level `KICKOFF.md`.
 
 ### Added
+- `docs/installation.md` + `docs/configuration.md` — the deploy path: getting the
+  binaries (release/source), the full `obold` flag reference, state-dir layout,
+  a systemd unit, socket permissions + the admin model, Slurm wiring, and verify
+  steps; plus the complete `obold.json` schema reference (accounts, rate, window,
+  access lists, node-type pricing, burst, admins), validation rules, and the
+  runtime-change verbs. Linked from the README (#120).
 - `docs/concepts.md` — a pedagogy guide that builds up Obol from one worked
   example (the $10k lab: reserve → admit → settle → refund) through balances vs.
   reservations, costing, hierarchy, windows, banked burst, partition policy,
