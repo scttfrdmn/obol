@@ -60,7 +60,7 @@ end
 -- gate_decision performs the GATE round-trip and returns (ok, token_or_reason).
 -- On transport failure it returns nil so the caller applies the fail-closed
 -- policy. This function is the whole hot path.
-local function gate_decision(account, partition, uid, time_limit, ntasks, tres)
+local function gate_decision(account, partition, uid, time_limit, ntasks, tres, sources)
   local req = wire.gate_frame({
     account = account or "",
     partition = partition or "",
@@ -68,6 +68,7 @@ local function gate_decision(account, partition, uid, time_limit, ntasks, tres)
     time_limit = time_limit or 0,
     ntasks = ntasks or 1,
     tres = tres,
+    sources = sources, -- ordered multi-source list (nil/absent => single account)
   })
   local resp, err = transport.round_trip(OBOL_SOCKET, wire.encode_frame(req), OBOL_TIMEOUT_MS)
   if not resp then
@@ -116,6 +117,31 @@ end
 -- an extra global is harmless to the plugin ABI). Tests load this file and call it.
 obol_array_task_count = array_task_count
 
+-- parse_sources extracts an ordered multi-source funding list from a job's
+-- --comment (#98). Convention: a token "obol-sources=a,b,c" anywhere in the
+-- comment (space/semicolon-delimited from any surrounding text) names the ordered
+-- source accounts. Returns a Lua array of names, or nil when absent (→ the job
+-- funds from its single --account, exactly as before). The daemon authorizes
+-- every source, so this input can only draw from accounts the submitter already
+-- has access to — it cannot be used to spoof entitlement.
+local function parse_sources(comment)
+  if type(comment) ~= "string" or comment == "" then return nil end
+  local list = comment:match("obol%-sources=([^%s;]+)")
+  if not list or list == "" then return nil end
+  -- __array tags this table as a JSON array for obol_wire's encoder (a plain Lua
+  -- array is otherwise serialized as an object, which crashes on integer keys).
+  local out = { __array = true }
+  for raw in list:gmatch("[^,]+") do
+    local name = raw:match("^%s*(.-)%s*$") -- trim
+    if name ~= "" then out[#out + 1] = name end
+  end
+  if #out == 0 then return nil end
+  return out
+end
+
+-- Exposed for unit testing (see array_task_count); harmless to the plugin ABI.
+obol_parse_sources = parse_sources
+
 -- slurm_job_submit is the plugin entry point. job_desc is the mutable submission
 -- record; part_list and submit_uid are provided by Slurm. Returns a Slurm rc.
 function slurm_job_submit(job_desc, part_list, submit_uid)
@@ -146,7 +172,12 @@ function slurm_job_submit(job_desc, part_list, submit_uid)
     mem = num(job_desc.pn_min_memory), -- per-node memory request, MB
   }
 
-  local ok, result = gate_decision(account, partition, submit_uid, tl_seconds, ntasks, tres)
+  -- Multi-source funding (#98): "obol-sources=a,b,c" in --comment names an ordered
+  -- funding list; the daemon splits the cost across those accounts (ordered
+  -- fallback). Absent => nil => the job funds from its single --account as before.
+  local sources = parse_sources(job_desc.comment)
+
+  local ok, result = gate_decision(account, partition, submit_uid, tl_seconds, ntasks, tres, sources)
 
   if ok == nil then
     -- Daemon unreachable: apply the local static fail-closed policy.

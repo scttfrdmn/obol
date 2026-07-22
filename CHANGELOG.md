@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Multi-source funding is reachable from a real `sbatch` (#98): a job names its
+  ordered funding accounts in `--comment` as `obol-sources=grant,startup`, and the
+  GATE shim parses that into the gate's `sources` list (absent → single
+  `--account`, unchanged). `--comment` being user-editable grants nothing — the
+  daemon authorizes every source, so a submitter can only draw from accounts they
+  already have access to. Validated end to end in the Docker tier (a job draining
+  one budget and spilling to the next, then recovering on cancel).
+
 ## [0.12.0] - 2026-07-21
 
 Multi-source funding is complete: job arrays can now draw from multiple account
