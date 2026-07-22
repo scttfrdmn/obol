@@ -198,6 +198,27 @@ func TestArrayGateVerb(t *testing.T) {
 	}
 }
 
+// TestMultiSourceGateVerb drives `obol gate --source A --source B` end to end: a
+// job costing more than the first source drains it and spills to the second.
+func TestMultiSourceGateVerb(t *testing.T) {
+	sock := newMultiDaemon(t, &daemon.Config{Accounts: []daemon.AccountConfig{
+		{Name: "grant", Balance: 100, Rate: 1, Window: "1000000s"},
+		{Name: "startup", Balance: 100000, Rate: 1, Window: "1000000s"},
+	}})
+	// cost 300 (rate 1 × 300s): grant funds 100, startup 200.
+	code, out, errOut := run(sock, "gate", "--source", "grant", "--source", "startup", "--time-limit", "300")
+	if code != 0 {
+		t.Fatalf("multi-source gate exit %d, stderr=%q", code, errOut)
+	}
+	if !strings.HasPrefix(out, "allow ") {
+		t.Errorf("multi-source gate out = %q, want an allow token", out)
+	}
+	// Under-funded across sources → clean reject (exit 3).
+	if code, out, _ := run(sock, "gate", "--source", "grant", "--time-limit", "300"); code != 3 {
+		t.Errorf("under-funded single-source-in-list: exit %d out=%q, want 3", code, out)
+	}
+}
+
 func TestBadArgs(t *testing.T) {
 	sock, _ := newDaemon(t)
 	// settle with neither jobid nor token.

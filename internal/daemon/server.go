@@ -42,9 +42,20 @@ type Server struct {
 	nodeCost *NodeCost        // node-type rates (issue #65); nil/empty = not configured
 	ident    identityResolver // uid -> user/groups, only used for restricted accounts
 
-	mu          sync.Mutex                // guards jobToToken and tokenBudget
-	jobToToken  map[string]string         // Slurm jobid -> escrow token
-	tokenBudget map[string]*budget.Budget // escrow token -> owning account budget
+	mu          sync.Mutex                // guards jobToToken, tokenBudget, tokenLegs
+	jobToToken  map[string]string         // Slurm jobid -> (master) escrow token
+	tokenBudget map[string]*budget.Budget // single-source: token -> owning budget
+	tokenLegs   map[string][]leg          // multi-source: master token -> ordered legs (#54)
+}
+
+// leg is one funded slice of a multi-source job (#54): an ordinary single-budget
+// escrow in budget bd under legToken, funding w seconds of the job at the job's
+// rate. The daemon fans BIND/SETTLE out across a master token's legs; each leg
+// settles independently so each budget conserves on its own.
+type leg struct {
+	bd    *budget.Budget
+	token string
+	w     budget.Seconds // whole seconds this leg funds (for settle apportionment)
 }
 
 // New builds a Server over a single budget (back-compat: wraps it in a
@@ -72,6 +83,7 @@ func NewWithRegistry(reg *Registry, now Clock, w Weights) *Server {
 		ident:       &osIdentity{}, // real uid->group lookup; swapped in tests
 		jobToToken:  make(map[string]string),
 		tokenBudget: make(map[string]*budget.Budget),
+		tokenLegs:   make(map[string][]leg),
 	}
 }
 
@@ -178,6 +190,13 @@ func (s *Server) handleGate(req *wire.GateRequest) *wire.Frame {
 	if req == nil {
 		return gateReject("empty gate request")
 	}
+	// Multi-source funding (#54): if the submission names an ordered list of
+	// sources, split the job across them (ordered fallback) — its own resolve +
+	// authorize path (there is no single Account). Empty Sources keeps the exact
+	// single-source path below unchanged.
+	if len(req.Sources) > 0 {
+		return s.handleGateMultiSource(req)
+	}
 	// Resolve account -> budget (SEAM §9: none resolves -> reject).
 	bd, err := s.reg.Resolve(req.Account)
 	if err != nil {
@@ -217,6 +236,89 @@ func (s *Server) handleGate(req *wire.GateRequest) *wire.Frame {
 	return &wire.Frame{MsgKind: wire.KindGate, GateResp: &wire.GateResponse{Allow: true, Token: token}}
 }
 
+// handleGateMultiSource is the ordered-fallback gate for a job funded by several
+// account budgets (#54). It resolves each source, computes the funding plan (each
+// source funds a contiguous whole-second slice at the job's rate), and places one
+// escrow per funded source. It is ALL-OR-NOTHING: if any leg fails to escrow,
+// every leg already placed is rolled back (full refund) and the gate rejects, so
+// no job is left partially funded. Legs are placed one kernel lock at a time (the
+// transfer discipline) — no two budget locks are ever held together.
+func (s *Server) handleGateMultiSource(req *wire.GateRequest) *wire.Frame {
+	if req.NTasks > 1 {
+		return gateReject("multi-source funding does not support job arrays yet")
+	}
+	// The job's rate must be flat here: node-type worst-case pricing reprices per
+	// escrow at BIND, which is well-defined per leg, but TRES/node rate resolution
+	// is unchanged. Resolve the rate exactly as the single-source path does.
+	c := s.nodeCost.worstRate(req.Partition)
+	if c == 0 {
+		c = s.weights.Rate(req.TRES)
+	}
+
+	// Resolve every source and authorize the submitter for each, before touching
+	// any money. Snapshot each source's rate-effective balance for the plan.
+	bds := make([]*budget.Budget, len(req.Sources))
+	balances := make([]budget.Units, len(req.Sources))
+	for i, acct := range req.Sources {
+		bd, err := s.reg.Resolve(acct)
+		if err != nil {
+			return gateReject(fmt.Sprintf("source %q: %s", acct, err.Error()))
+		}
+		if ok, reason := s.authorize(acct, req.UID); !ok {
+			return gateReject(fmt.Sprintf("source %q: %s", acct, reason))
+		}
+		bds[i] = bd
+		// The kernel uses the budget's own flat rate when c == 0; for the plan we
+		// need the concrete per-second rate this leg will bill. Resolve it per
+		// budget so the plan's floor(B/rate) math matches what SubmitAt will escrow.
+		rate := c
+		if rate == 0 {
+			rate = bd.Report(s.now()).C
+		}
+		// All legs share one job rate; if sources have differing flat rates and no
+		// node/TRES rate is set, that is a misconfiguration for a multi-source job.
+		if i == 0 {
+			c = rate
+		} else if rate != c {
+			return gateReject("multi-source requires a uniform rate across sources (set node-type or TRES pricing, or equal account rates)")
+		}
+	}
+	for i, bd := range bds {
+		balances[i] = bd.Balance()
+	}
+
+	legs, fundable := fundingPlan(balances, c, req.TimeLimit)
+	if !fundable {
+		return gateReject("insufficient budget across sources")
+	}
+
+	master, err := mintToken()
+	if err != nil {
+		return gateReject("token mint failed")
+	}
+	now := s.now()
+
+	// Place each leg sequentially. On any failure, roll back the placed legs.
+	placed := make([]leg, 0, len(legs))
+	for _, lp := range legs {
+		bd := bds[lp.Index]
+		legTok := fmt.Sprintf("%s:%d", master, lp.Index)
+		if err := bd.SubmitAt(legTok, c, lp.W, now); err != nil {
+			// Roll back everything placed so far: unstarted escrows → full refund.
+			for _, pl := range placed {
+				_ = pl.bd.Cancel(pl.token, 0, now)
+			}
+			return gateReject(fmt.Sprintf("source %q: %s", req.Sources[lp.Index], err.Error()))
+		}
+		placed = append(placed, leg{bd: bd, token: legTok, w: lp.W})
+	}
+
+	s.mu.Lock()
+	s.tokenLegs[master] = placed
+	s.mu.Unlock()
+	return &wire.Frame{MsgKind: wire.KindGate, GateResp: &wire.GateResponse{Allow: true, Token: master}}
+}
+
 // budgetForToken returns the budget that owns an escrow token, recorded at gate.
 func (s *Server) budgetForToken(token string) (*budget.Budget, bool) {
 	s.mu.Lock()
@@ -231,6 +333,13 @@ func (s *Server) budgetForToken(token string) (*budget.Budget, bool) {
 func (s *Server) handleBind(req *wire.BindRequest) *wire.Frame {
 	if req == nil || req.Token == "" || req.JobID == "" {
 		return &wire.Frame{MsgKind: wire.KindBind, BindResp: &wire.BindResponse{OK: false, Reason: "token and jobid required"}}
+	}
+	// Multi-source (#54): a master token maps to a set of legs; bind them all.
+	s.mu.Lock()
+	legs, isMulti := s.tokenLegs[req.Token]
+	s.mu.Unlock()
+	if isMulti {
+		return s.handleBindMultiSource(req, legs)
 	}
 	bd, ok := s.budgetForToken(req.Token)
 	if !ok {
@@ -277,6 +386,14 @@ func (s *Server) handleSettle(req *wire.SettleRequest) *wire.Frame {
 	if token == "" {
 		return settleReject("no token: unknown job")
 	}
+	// Multi-source (#54): fan the terminal transition out across the master
+	// token's legs, each with its apportioned runtime slice.
+	s.mu.Lock()
+	legs, isMulti := s.tokenLegs[token]
+	s.mu.Unlock()
+	if isMulti {
+		return s.handleSettleMultiSource(req, token, legs)
+	}
 	bd, ok := s.budgetForToken(token)
 	if !ok {
 		return settleReject("no such escrow") // unknown/already-settled token
@@ -306,6 +423,91 @@ func (s *Server) handleSettle(req *wire.SettleRequest) *wire.Frame {
 	}
 	delete(s.tokenBudget, token)
 	s.mu.Unlock()
+	return &wire.Frame{MsgKind: wire.KindSettle, SettleResp: &wire.SettleResponse{OK: true}}
+}
+
+// handleBindMultiSource binds every leg of a multi-source job (#54). Node-type
+// reprice is ALL-OR-NONE across the legs: repricing some legs but not others
+// would make their per-second rates diverge and break the settle apportionment
+// (Σ billed == rate*runtime). So we compute the target rate once and only reprice
+// if EVERY leg can (all are pre-Start), else leave all at the worst-case escrow —
+// which is always safe. Then Start each leg (best-effort, like single-source).
+func (s *Server) handleBindMultiSource(req *wire.BindRequest, legs []leg) *wire.Frame {
+	s.mu.Lock()
+	s.jobToToken[req.JobID] = req.Token
+	s.mu.Unlock()
+
+	now := s.now()
+	// All-or-none reprice. Every leg shares the job's rate c and is pre-Start, so
+	// Reprice(rate) succeeds on a leg iff 0 < rate <= c — the same condition for
+	// all legs. Gating on that precondition means we either reprice every leg (to
+	// the same lower rate, keeping the settle apportionment Σ billed == rate*runtime
+	// exact) or none (the worst-case escrow stands, always safe). Legs can't diverge.
+	if req.NodeType != "" && s.nodeCost.enabled() {
+		if rate := s.nodeCost.rate(req.NodeType); rate > 0 {
+			for _, l := range legs {
+				_ = l.bd.Reprice(l.token, rate, now) // uniform precondition ⇒ all succeed or all no-op
+			}
+		}
+	}
+
+	// Start each leg. Best-effort, mirroring single-source: a leg that can't
+	// reserve burst tokens (ErrBurstInsuff) still bills its time slice correctly at
+	// settle (Started only governs burst, not money), so we don't fail the bind on
+	// it; a genuinely unknown leg token would be a bug.
+	for _, l := range legs {
+		if err := l.bd.Start(l.token, now); err != nil && !errors.Is(err, budget.ErrNoSuchJob) {
+			// Non-fatal: leave the leg pending; it still settles correctly.
+			_ = err
+		}
+	}
+	return &wire.Frame{MsgKind: wire.KindBind, BindResp: &wire.BindResponse{OK: true}}
+}
+
+// handleSettleMultiSource fans a terminal transition out across a job's legs
+// (#54), each with its apportioned runtime slice so Σ billed == rate*runtime and
+// every budget conserves independently. The leg ordering matches the funding plan
+// (contiguous time slices), so legRuntime cuts each leg's share by prefix sums.
+func (s *Server) handleSettleMultiSource(req *wire.SettleRequest, master string, legs []leg) *wire.Frame {
+	now := s.now()
+	// Build the []legPlan view legRuntime needs (index within this slice + W).
+	plan := make([]legPlan, len(legs))
+	for i, l := range legs {
+		plan[i] = legPlan{Index: i, W: l.w}
+	}
+
+	var firstErr error
+	for i, l := range legs {
+		var err error
+		switch req.Kind {
+		case wire.SettleComplete:
+			err = l.bd.Complete(l.token, legRuntime(plan, i, req.Runtime), now)
+		case wire.SettleTimeout:
+			err = l.bd.Timeout(l.token, now)
+		case wire.SettleCancel:
+			err = l.bd.Cancel(l.token, legRuntime(plan, i, req.Elapsed), now)
+		case wire.SettleInfraFail:
+			err = l.bd.InfraFail(l.token, legRuntime(plan, i, req.Elapsed), now)
+		default:
+			return settleReject(fmt.Sprintf("unknown settle kind %q", req.Kind))
+		}
+		if err != nil && firstErr == nil {
+			firstErr = err // settle the rest; report the first failure
+		}
+	}
+
+	// Clean up routing regardless: legs are independent and any stuck leg ages out
+	// via the unbound-token janitor.
+	s.mu.Lock()
+	if req.JobID != "" {
+		delete(s.jobToToken, req.JobID)
+	}
+	delete(s.tokenLegs, master)
+	s.mu.Unlock()
+
+	if firstErr != nil {
+		return settleReject(firstErr.Error())
+	}
 	return &wire.Frame{MsgKind: wire.KindSettle, SettleResp: &wire.SettleResponse{OK: true}}
 }
 

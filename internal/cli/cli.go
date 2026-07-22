@@ -102,7 +102,7 @@ func usage(w io.Writer) {
 
 Usage:
   obol show                              show budget balance, burn, burst, conservation
-  obol gate    --account A --partition P --time-limit S [--ntasks N]
+  obol gate    (--account A | --source A --source B ...) --partition P --time-limit S [--ntasks N]
   obol bind    --token T --jobid J [--node-type NT]
   obol settle  (--jobid J | --token T) --kind KIND [--runtime S] [--elapsed S]
   obol create  --account A --balance N --rate R [--window D] [--allow-user U]... [--allow-group G]...  (admin)

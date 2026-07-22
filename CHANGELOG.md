@@ -8,6 +8,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Multi-source funding (#54): one Slurm job may now draw from **multiple account
+  budgets** via an ordered `sources` list (ordered fallback — drain the first,
+  spill to the next). The gate places one escrow per source (each funding a
+  contiguous whole-second slice of the job), **all-or-nothing**: if any leg can't
+  be funded, the already-placed legs are rolled back and the job is rejected.
+  Settle fans out across the legs so total billed equals the job's true cost and
+  an early exit refunds the later sources; node failure applies each budget's own
+  bill/write-off policy to its slice. Each budget still conserves on its own (no
+  cross-budget invariant); a partial gate self-heals via the unbound-token janitor
+  (no new journal). Single-source submissions are unchanged. 1:1 jobs only this
+  round (arrays stay single-source). `obol gate` gains a repeatable `--source`
+  flag to exercise it (the Slurm shim convention is a follow-up).
 - Multi-source funding groundwork (#54): a `sources` field on the gate wire
   request (ordered list of account budgets to fund one job) and the
   ordered-fallback funding-plan computation. Each source funds a contiguous
