@@ -17,6 +17,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a developer aside). Removed the obsolete top-level `KICKOFF.md`.
 
 ### Added
+- `docs/concepts.md` — a pedagogy guide that builds up Obol from one worked
+  example (the $10k lab: reserve → admit → settle → refund) through balances vs.
+  reservations, costing, hierarchy, windows, banked burst, partition policy,
+  conservation, **why money is stored as integer units**, and a section on **how
+  Obol relates to Slurm accounting/QOS/fair-share** (gate-before vs. measure-after;
+  reuses the account tree). Linked from the README's new Documentation section (#119).
 - Project branding in `docs/assets/` (hero banner, logo, social-preview card,
   sticker); README now leads with the hero banner and documents the assets.
 

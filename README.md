@@ -114,6 +114,17 @@ bin/obol --socket /tmp/obold.sock show   # balance debited by the 300s consumed,
 ```
 </details>
 
+## Documentation
+
+- **[`docs/concepts.md`](docs/concepts.md)** — how Obol works, built up from one
+  worked example: reservations, settlement, hierarchy, windows, banked burst,
+  costing, why money is integer, and **how Obol relates to Slurm
+  accounting/QOS/fair-share**. Start here.
+- **[`docs/SEAM_DESIGN.md`](docs/SEAM_DESIGN.md)** — the architecture and *why* it
+  looks that way (sidecar daemon, three-tier latency, correlation token, failure modes).
+- **[`docs/INTEGRATION.md`](docs/INTEGRATION.md)** — the test tiers and what each proves
+  (unit, Docker Slurm, multi-generation, ParallelCluster).
+
 ## Build
 
 ```
