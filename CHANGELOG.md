@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.1] - 2026-07-21
+
+Multi-source funding is now reachable from a real `sbatch` (via
+`--comment obol-sources=...`), not just the diagnostic CLI. Patch: seam/shim
+plumbing only — no wire, kernel, or API change; a job without the token behaves
+exactly as before.
+
 ### Added
 - Multi-source funding is reachable from a real `sbatch` (#98): a job names its
   ordered funding accounts in `--comment` as `obol-sources=grant,startup`, and the
@@ -467,7 +474,8 @@ lock-cheap read path (#7), and config durability (#8).
 - Seam design document (`docs/SEAM_DESIGN.md`) describing the Slurm attachment.
 - Project scaffold: CI (race + lint + coverage), release pipeline, governance.
 
-[Unreleased]: https://github.com/scttfrdmn/obol/compare/v0.12.0...HEAD
+[Unreleased]: https://github.com/scttfrdmn/obol/compare/v0.12.1...HEAD
+[0.12.1]: https://github.com/scttfrdmn/obol/compare/v0.12.0...v0.12.1
 [0.12.0]: https://github.com/scttfrdmn/obol/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/scttfrdmn/obol/compare/v0.10.1...v0.11.0
 [0.10.1]: https://github.com/scttfrdmn/obol/compare/v0.10.0...v0.10.1
