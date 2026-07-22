@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.1] - 2026-07-21
+
+Validation-only patch: the obol seam is now proven against all three burstlab
+Slurm generations built from source. No product code changed — the daemon,
+kernel, wire protocol, and CLI are identical to 0.10.0; this adds a test tier.
+
 ### Added
 - Multi-generation Docker Slurm integration tier (#16): `make integ-docker-multigen`
   builds Slurm **from source** at each burstlab generation's exact version
@@ -416,7 +422,8 @@ lock-cheap read path (#7), and config durability (#8).
 - Seam design document (`docs/SEAM_DESIGN.md`) describing the Slurm attachment.
 - Project scaffold: CI (race + lint + coverage), release pipeline, governance.
 
-[Unreleased]: https://github.com/scttfrdmn/obol/compare/v0.10.0...HEAD
+[Unreleased]: https://github.com/scttfrdmn/obol/compare/v0.10.1...HEAD
+[0.10.1]: https://github.com/scttfrdmn/obol/compare/v0.10.0...v0.10.1
 [0.10.0]: https://github.com/scttfrdmn/obol/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/scttfrdmn/obol/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/scttfrdmn/obol/compare/v0.7.0...v0.8.0
