@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-07-21
+
+Multi-source funding. A single Slurm job can now draw from **multiple account
+budgets** in ordered fallback — the last piece of budget-membership scope the
+flat per-account model deferred (#54). Minor bump: additive `sources` wire field
+and gate orchestration; the kernel is unchanged (each funding leg is an ordinary
+single-budget escrow, and each budget conserves on its own), and single-source
+submissions behave exactly as before.
+
 ### Added
 - Multi-source funding (#54): one Slurm job may now draw from **multiple account
   budgets** via an ordered `sources` list (ordered fallback — drain the first,
@@ -394,7 +403,8 @@ lock-cheap read path (#7), and config durability (#8).
 - Seam design document (`docs/SEAM_DESIGN.md`) describing the Slurm attachment.
 - Project scaffold: CI (race + lint + coverage), release pipeline, governance.
 
-[Unreleased]: https://github.com/scttfrdmn/obol/compare/v0.9.0...HEAD
+[Unreleased]: https://github.com/scttfrdmn/obol/compare/v0.10.0...HEAD
+[0.10.0]: https://github.com/scttfrdmn/obol/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/scttfrdmn/obol/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/scttfrdmn/obol/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/scttfrdmn/obol/compare/v0.6.0...v0.7.0
