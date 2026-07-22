@@ -17,6 +17,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a developer aside). Removed the obsolete top-level `KICKOFF.md`.
 
 ### Added
+- `docs/production-readiness.md` — the compatibility matrix (Slurm 22.05/23.11/24.05,
+  Rocky 8/9/10, Go 1.26, arch, wire/state policy), an honest **validation-status**
+  table (CI runs the unit tier only; the Docker/multi-gen/ParallelCluster tiers are
+  build-tag-gated and validated locally), Mermaid diagrams of the gate→bind→settle
+  lifecycle and the two orphan janitors, a go-live checklist, and known limitations
+  (#123, codeable parts; terminal recordings still pending).
 - `docs/README.md` — a documentation map routing by intent (evaluating / trying /
   deploying / operating / contributing), and `docs/cli-reference.md` — every
   `obol` verb with flags, exit-code convention, and which verbs require admin.
