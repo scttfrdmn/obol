@@ -61,11 +61,13 @@ func cmdGate(args []string, out, errOut io.Writer) int {
 	fs := flag.NewFlagSet("gate", flag.ContinueOnError)
 	fs.SetOutput(errOut)
 	socket := socketFlag(fs)
-	account := fs.String("account", "", "Slurm account")
+	account := fs.String("account", "", "Slurm account (single-source)")
 	partition := fs.String("partition", "", "partition")
 	timeLimit := fs.Int64("time-limit", 0, "requested walltime, seconds")
 	ntasks := fs.Int("ntasks", 1, "task count (>1 = array)")
 	uid := fs.Uint64("uid", 0, "submitting user id")
+	var sources stringList
+	fs.Var(&sources, "source", "funding source account, ordered fallback (repeatable; overrides --account for multi-source, #54)")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -77,7 +79,7 @@ func cmdGate(args []string, out, errOut io.Writer) int {
 	}
 	resp, err := roundTrip(*socket, wire.GateFrame(&wire.GateRequest{
 		Account: *account, Partition: *partition, UID: uint32(*uid),
-		TimeLimit: *timeLimit, NTasks: *ntasks,
+		TimeLimit: *timeLimit, NTasks: *ntasks, Sources: sources,
 	}))
 	if err != nil {
 		return fail(errOut, err)

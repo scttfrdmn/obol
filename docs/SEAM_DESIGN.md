@@ -301,6 +301,34 @@ already enforced by slurmdbd); an account may optionally set an `allow_users`/`a
 list, in which case obol additionally resolves the submitter's uid→user/groups and checks it
 (only then is the lookup incurred, keeping the hot path free of it by default).
 
+### 9.1 Multi-source funding (issue #54)
+
+A job may name an **ordered** list of source accounts (`GateRequest.Sources`) instead of a single
+`--account`; empty falls back to single-source, byte-identical to before. The gate splits the job
+by **ordered fallback**: source 1 funds the first `W₁` seconds of the job at the full rate `c`,
+source 2 the next `W₂`, … with `Σ Wᵢ = W` (drain the lab grant, then spill to the startup
+allocation). Each source funds only the **whole seconds** it can afford — `Wᵢ = floor(Bᵢ/c)`
+capped by the remaining need — so each leg is an *ordinary single-budget escrow* with
+`Reserved = c·Wᵢ`. **The kernel is unchanged**: each leg conserves on its own; there is **no
+cross-budget conservation construct**. A source with `Bᵢ < c` funds zero whole seconds and its
+sub-`c` remainder stays in its balance (not stranded). Fundable ⇔ `Σ floor(Bᵢ/c) ≥ W`.
+
+The daemon composes the legs. `handleGate` places one escrow per funded source **sequentially,
+one kernel lock at a time** (the transfer discipline — never two budget locks together); it is
+**all-or-nothing** — if any leg fails to escrow, every already-placed leg is rolled back with a
+full refund (`Cancel(legToken, 0)`) and the gate rejects, so no job is left partially funded. A
+master token maps to the ordered legs in memory (`tokenLegs`, exactly as `tokenBudget` for
+single-source). `handleBind` reprices (all-or-none, so per-leg rates can't diverge) and starts
+every leg; `handleSettle` fans the terminal transition out to each leg with its apportioned
+runtime slice `rᵢ = clamp(runtime − prefixᵢ, 0, Wᵢ)`, so `Σ billed = c·runtime` and an early
+completion refunds the tail sources while billing the head ones. `InfraFail` applies each budget's
+own `BillInfraFailures` policy to its slice, so mixed cloud/on-prem sources bill-vs-write-off
+correctly. Crash safety needs **no journal**: a partially-placed gate's legs are unstarted escrows
+reclaimed per-budget by the `SweepUnbound` janitor (§13.2) — the roll-back bias, unlike transfer's
+complete-forward. **Scope:** 1:1 jobs; job arrays remain single-source (follow-up). The shim
+convention for where a user writes the ordered source list is a documented follow-up; the daemon
+owns all split policy.
+
 ---
 
 ## 10. Per-generation verification checklist
