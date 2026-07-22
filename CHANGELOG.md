@@ -14,8 +14,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   SETTLE money path + the `admin_comment` token round-trip against each — resolving
   the per-generation §10 ABI question. Recipe matched to burstlab's packer AMIs
   (`Dockerfile.slurm-src`, parameterized by base/version). Opt-in, local, behind
-  the `docker_multigen` build tag (not in CI; ~10–20 min/image). Gen 2 (23.11)
-  wired in this change and validated end to end; Gen 1/3 follow.
+  the `docker_multigen` build tag (not in CI; ~10–20 min/image). All three
+  generations — Gen 1 (22.05.11/Rocky 8), Gen 2 (23.11.10/Rocky 9), Gen 3
+  (24.05.5/Rocky 10) — build, boot, and pass the money path + admin_comment probe;
+  the shared entrypoint was made base-agnostic (munge key tool and mariadb daemon
+  are named differently across Rocky 8/9/10).
 
 ## [0.10.0] - 2026-07-21
 

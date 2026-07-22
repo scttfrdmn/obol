@@ -98,6 +98,12 @@ an EFS-backed cloud node):
   `kernel-headers` are still installed so `configure` builds the cgroup/v2 plugin
   (matching burstlab), even though the tests don't rely on cgroup controllers.
 
+**Base-OS differences the shared `entrypoint.sh` handles** (found bringing up all
+three): the munge key tool is `create-munge-key` on Rocky 8/9 but `mungekey` on
+Rocky 10; the MariaDB daemon is `/usr/libexec/mysqld` + `mysql_install_db` on
+Rocky 8 (MariaDB 10.3) but `/usr/libexec/mariadbd` + `mariadb-install-db` on Rocky
+9/10. The entrypoint detects both so one script boots every generation.
+
 ## Scope of the seam under test
 
 The Docker tier drives settlement through the **controller-side `jobcomp/script`

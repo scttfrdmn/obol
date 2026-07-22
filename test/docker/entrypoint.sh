@@ -13,7 +13,17 @@ log() { echo "[entrypoint] $*"; }
 log "starting munge"
 # munged needs its runtime socket dir (Slurm looks for /run/munge/munge.socket.2).
 install -d -o munge -g munge -m 0755 /run/munge /var/run/munge
-/usr/sbin/create-munge-key -f >/dev/null 2>&1 || true
+install -d -o munge -g munge -m 0700 /etc/munge
+# Generate the key with whichever tool this base ships: Rocky 8/9 have the
+# create-munge-key script; Rocky 10 (munge 0.5.16) replaced it with `mungekey`.
+# Without a key munged won't start and every daemon's auth/munge plugin fatals.
+if [ ! -f /etc/munge/munge.key ]; then
+  if command -v create-munge-key >/dev/null 2>&1; then
+    create-munge-key -f >/dev/null 2>&1 || true
+  elif command -v mungekey >/dev/null 2>&1; then
+    mungekey --create --force >/dev/null 2>&1 || true
+  fi
+fi
 chown munge:munge /etc/munge/munge.key 2>/dev/null || true
 chmod 400 /etc/munge/munge.key 2>/dev/null || true
 runuser -u munge -- /usr/sbin/munged --force --num-threads=10
@@ -23,13 +33,22 @@ for i in $(seq 1 20); do
 done
 
 # --- mariadb (slurmdbd store) ---
+# The daemon binary and init tool are named differently across Rocky releases:
+# Rocky 8 (MariaDB 10.3) ships /usr/libexec/mysqld + mysql_install_db; Rocky 9/10
+# ship /usr/libexec/mariadbd + mariadb-install-db. Detect both so one entrypoint
+# serves every generation's image.
 log "starting mariadb"
 mkdir -p /var/lib/mysql /run/mariadb
 chown -R mysql:mysql /var/lib/mysql /run/mariadb
+mariadbd_bin=""
+for p in /usr/libexec/mariadbd /usr/sbin/mariadbd /usr/libexec/mysqld /usr/sbin/mysqld; do
+  [ -x "$p" ] && { mariadbd_bin="$p"; break; }
+done
+install_db="$(command -v mariadb-install-db || command -v mysql_install_db)"
 if [ ! -d /var/lib/mysql/mysql ]; then
-  mariadb-install-db --user=mysql --datadir=/var/lib/mysql >/dev/null 2>&1
+  "$install_db" --user=mysql --datadir=/var/lib/mysql >/dev/null 2>&1
 fi
-runuser -u mysql -- /usr/libexec/mariadbd --datadir=/var/lib/mysql --socket=/var/lib/mysql/mysql.sock >/var/log/mariadb.log 2>&1 &
+runuser -u mysql -- "$mariadbd_bin" --datadir=/var/lib/mysql --socket=/var/lib/mysql/mysql.sock >/var/log/mariadb.log 2>&1 &
 for i in $(seq 1 30); do
   mysqladmin --socket=/var/lib/mysql/mysql.sock ping >/dev/null 2>&1 && break
   sleep 0.5
