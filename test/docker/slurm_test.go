@@ -313,6 +313,73 @@ func TestMultiAccountIsolation(t *testing.T) {
 	}
 }
 
+// TestMultiSourceViaComment proves the end-to-end multi-source path (#98): a job
+// naming "obol-sources=lab,lab_smith" in --comment is split across both budgets by
+// the shim → daemon, ordered fallback. The job costs more than lab's whole
+// balance, so lab is drained and lab_smith funds the remainder — both debited.
+func TestMultiSourceViaComment(t *testing.T) {
+	labBefore := showBalance(t, "lab")
+	smithBefore := showBalance(t, "lab_smith")
+
+	// rate 1; --time=2000 min = 120000s > lab's 100000 balance, so the gate must
+	// drain lab (to a whole-second boundary) and spill the rest to lab_smith.
+	// Hold the job (sleep) so we observe the escrow split at gate time.
+	out := dexec(t, `sbatch --parsable --comment="obol-sources=lab,lab_smith" --account=lab --partition=cloud --time=2000 --wrap="sleep 20"`)
+	job := strings.TrimSpace(lastLine(out))
+	if !isNumeric(job) {
+		t.Fatalf("multi-source sbatch returned no job id: %q", out)
+	}
+
+	// lab is fully drained (0), lab_smith funds the 20000s remainder (−20000).
+	drained := false
+	for i := 0; i < 10; i++ {
+		if showBalance(t, "lab") == 0 && showBalance(t, "lab_smith") == smithBefore-20000 {
+			drained = true
+			break
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	if !drained {
+		t.Errorf("multi-source split wrong: lab=%d (want 0), lab_smith=%d (want %d)",
+			showBalance(t, "lab"), showBalance(t, "lab_smith"), smithBefore-20000)
+	}
+	// Both budgets conserve.
+	for _, acct := range []string{"lab", "lab_smith"} {
+		if s := showAccount(t, acct); !strings.Contains(s, "Conservation:  OK") {
+			t.Errorf("%s conservation not OK after multi-source gate:\n%s", acct, s)
+		}
+	}
+
+	// Wait until the job is RUNNING so the prolog has bound it (jobToToken →
+	// master token); cancelling a still-pending job would leave the escrow to the
+	// unbound-token janitor (#15), not the jobcomp settle path we exercise here.
+	for i := 0; i < 20; i++ {
+		st := strings.TrimSpace(dexec(t, `squeue -h -j `+job+` -o "%T" 2>/dev/null || true`))
+		if st == "RUNNING" {
+			break
+		}
+		time.Sleep(time.Second)
+	}
+	// Cancel + settle: both sources recover their unused escrow (the job barely
+	// ran, so nearly the whole reservation refunds on each leg). Poll, since
+	// scancel → jobcomp settle is async through the controller.
+	dexec(t, `scancel `+job)
+	waitJobGone(t, job)
+	recovered := false
+	for i := 0; i < 15; i++ {
+		if showBalance(t, "lab") > 0 && showBalance(t, "lab_smith") > smithBefore-20000 {
+			recovered = true
+			break
+		}
+		time.Sleep(time.Second)
+	}
+	if !recovered {
+		t.Errorf("sources did not recover after settle: lab=%d lab_smith=%d",
+			showBalance(t, "lab"), showBalance(t, "lab_smith"))
+	}
+	_ = labBefore
+}
+
 // TestAccessRejected proves the optional per-account allow-list: lab_jones is
 // restricted to carol/dave, so alice (a lab_smith user) submitting to lab_jones
 // is rejected for access — even though the job would otherwise be funded.

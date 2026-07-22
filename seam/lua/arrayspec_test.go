@@ -50,3 +50,38 @@ io.write(tostring(obol_array_task_count([==[` + tc.spec + `]==])))
 		}
 	}
 }
+
+// TestParseSources exercises job_submit.lua's --comment source-list parser
+// (obol_parse_sources) — the #98 convention "obol-sources=a,b,c". want is the
+// comma-joined result, or "nil" when the comment names no sources.
+func TestParseSources(t *testing.T) {
+	lua := luaBin(t)
+	cases := []struct {
+		comment string
+		want    string
+	}{
+		{"", "nil"},                                     // no comment
+		{"just a note", "nil"},                          // unrelated comment
+		{"obol-sources=grant", "grant"},                 // single
+		{"obol-sources=grant,startup", "grant,startup"}, // ordered pair
+		{"obol-sources=grant,startup,disc", "grant,startup,disc"},
+		{"note; obol-sources=grant,startup", "grant,startup"},      // token amid other text
+		{"obol-sources=grant,startup ; trailing", "grant,startup"}, // stops at delimiter
+		{"obol-sources=", "nil"},                                   // empty value
+		{"obol-sources= grant , startup ", "nil"},                  // spaces after = break the token (documented: no spaces)
+	}
+	for _, tc := range cases {
+		script := `
+package.preload['obol_wire'] = function() return {} end
+package.preload['obol_transport'] = function() return {} end
+slurm = { SUCCESS = 0, ERROR = -1, log_info = function() end }
+dofile('job_submit.lua')
+local r = obol_parse_sources([==[` + tc.comment + `]==])
+if r == nil then io.write("nil") else io.write(table.concat(r, ",")) end
+`
+		got := strings.TrimSpace(string(runLua(t, lua, script)))
+		if got != tc.want {
+			t.Errorf("parse_sources(%q) = %q, want %q", tc.comment, got, tc.want)
+		}
+	}
+}

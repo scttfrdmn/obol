@@ -337,8 +337,16 @@ completion refunds the tail sources while billing the head ones. `InfraFail` app
 own `BillInfraFailures` policy to its slice, so mixed cloud/on-prem sources bill-vs-write-off
 correctly. Crash safety needs **no journal**: a partially-placed gate's legs are unstarted escrows
 reclaimed per-budget by the `SweepUnbound` janitor (§13.2) — the roll-back bias, unlike transfer's
-complete-forward. The shim convention for where a user writes the ordered source list is a
-documented follow-up; the daemon owns all split policy.
+complete-forward.
+
+**Naming the sources from `sbatch` (#98).** A submission expresses its ordered funding list in
+`--comment` as `obol-sources=a,b,c` (a keyed token, so other comment text is preserved). The shim
+(`job_submit.lua`) parses it into `GateRequest.Sources`; absent → the job funds from its single
+`--account`, exactly as before. `--comment` is user-editable, but this grants no privilege: the
+daemon authorizes **every** source, so a submitter can only draw from accounts they already have
+access to — the same authorization as `--account`. The daemon owns all split policy; the shim only
+forwards the list. (The token requires no spaces around the `=`/commas; that keeps the parse a
+single unambiguous field.)
 
 **Job arrays split by WHOLE TASKS (#96).** A multi-source array funds in units of one task's cost
 (`c·w`): source 1 funds the first `k₁` task indices, source 2 the next `k₂`, … with `kᵢ =
