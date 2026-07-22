@@ -17,6 +17,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a developer aside). Removed the obsolete top-level `KICKOFF.md`.
 
 ### Added
+- `docs/operations.md` — the run-it-safely guide: the durability model (WAL group
+  commit + snapshot, why a crash is safe), backup/restore, recovery after
+  daemon/controller/network/state-dir failure, the two orphan janitors
+  (automatic unbound-token TTL sweep + `squeue | obol reconcile`), per-partition
+  fail-open/closed, monitoring/health (`ping`, conservation, `list`), upgrade &
+  rollback under pre-1.0 wire/state compatibility, and the `SO_PEERCRED` admin
+  model — plus an operational checklist. Linked from the README (#121).
 - `docs/installation.md` + `docs/configuration.md` — the deploy path: getting the
   binaries (release/source), the full `obold` flag reference, state-dir layout,
   a systemd unit, socket permissions + the admin model, Slurm wiring, and verify
