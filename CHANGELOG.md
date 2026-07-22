@@ -17,6 +17,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a developer aside). Removed the obsolete top-level `KICKOFF.md`.
 
 ### Added
+- `docs/README.md` — a documentation map routing by intent (evaluating / trying /
+  deploying / operating / contributing), and `docs/cli-reference.md` — every
+  `obol` verb with flags, exit-code convention, and which verbs require admin.
+  The top-level README now points at the map (#122).
 - `docs/operations.md` — the run-it-safely guide: the durability model (WAL group
   commit + snapshot, why a crash is safe), backup/restore, recovery after
   daemon/controller/network/state-dir failure, the two orphan janitors
