@@ -154,6 +154,18 @@ JANITOR  (periodic)
 the full job record (jobid, state, `admin_comment` all visible). One plugin, three needs, and it
 is the same plugin that must exist anyway to realize burst as a priority factor.
 
+**Job arrays (#103).** `slurm_job_submit` fires ONCE for a whole array; the shim reads the array
+spec (`job_desc.array_inx`, e.g. `"0-9"` / `"0-9%4"` / `"1,3,5"`), counts the tasks, and gates all
+N as a single array escrow (one token, stamped once in `admin_comment` — every task inherits it).
+Bind and settle are then PER TASK: Slurm assigns each task its own job id plus an `ArrayTaskId`.
+The prolog reads `ArrayTaskId` from `scontrol show job` (the array env vars are not exported to the
+prolog, but the record carries them) and binds `(token, idx)`; jobcomp fires per task with
+`ARRAYTASKID` in its environment and settles `(token, idx)`. Each task draws and refunds its own
+`c*w` slice via the kernel's per-task transitions; the daemon drops the token routing when the last
+task settles. **Caveat:** for a non-array job Slurm sets `ARRAYTASKID` to the `NO_VAL` sentinel
+(`4294967294`), not unset — the scripts accept only a real small index, so a 1:1 job is never
+mistaken for array task 4-billion.
+
 **Known gap — the submit→start window.** Between `job_submit` (escrow against T) and `site_factor`
 first seeing the job (T↔jobid bound), the daemon knows the job only as an unbound token. If the
 daemon crashes and recovers in that window, it holds an escrow against T with no jobid, which the

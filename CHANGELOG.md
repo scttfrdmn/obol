@@ -8,15 +8,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- Per-task array bind/settle through the daemon (#103, toward #96): the wire
-  `BindRequest`/`SettleRequest` gained `array_task`+`idx`, and the daemon now
-  drives the array kernel per task — `handleBind`→`StartTask`, `handleSettle`→the
-  matching `*Task` transition — so an array job's tasks each escrow, start, and
-  settle their own slice with the budget conserving throughout. Token routing is
-  dropped only when the last task settles. `obol bind`/`obol settle` gained
-  `--idx`. This is the daemon/wire half; the shim reading `--array` and the seam
-  scripts passing the task index follow (single-source arrays are still gated as
-  one escrow end to end until then).
+- Single-source job arrays now flow through the seam end to end (#103, toward
+  #96). The GATE shim (`job_submit.lua`) reads `--array` and gates all N tasks as
+  one escrow; the wire `BindRequest`/`SettleRequest` carry `array_task`+`idx`; the
+  daemon drives the array kernel per task (`handleBind`→`StartTask`,
+  `handleSettle`→the matching `*Task`), dropping token routing only when the last
+  task settles; and the prolog/jobcomp scripts bind and settle each task by its
+  `ArrayTaskId` (resolved via `scontrol` in the prolog, from `ARRAYTASKID` in
+  jobcomp). `obol bind`/`obol settle` gained `--idx`. So `sbatch --array=0-3` now
+  escrows the whole array, runs, and settles each task's slice with the budget
+  conserving throughout — validated in the Docker tier. 1:1 jobs are unchanged.
 
 ## [0.10.1] - 2026-07-21
 
