@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- README overhaul: the opening now states the audience, the operator problem, the
+  reservation mechanism, and how Obol differs from native Slurm accounting/QOS
+  (with a worked $10k-lab example); a **Maturity & compatibility** section
+  replaces the stale status table and reflects v0.14.0, the full 19-verb CLI, and
+  the Docker-validated seam (22.05/23.11/24.05); the "Try it" protocol demo is
+  replaced by a real `sbatch`-based quickstart (the wire-primitive demo is kept as
+  a developer aside). Removed the obsolete top-level `KICKOFF.md`.
+
 ### Added
 - Project branding in `docs/assets/` (hero banner, logo, social-preview card,
   sticker); README now leads with the hero banner and documents the assets.
