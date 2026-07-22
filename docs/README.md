@@ -32,6 +32,9 @@ Start with what you're trying to do.
   fail-closed, monitoring, upgrades/rollback, and the admin model.
 - [**CLI reference**](cli-reference.md) — every `obol` verb, its flags, and exit
   codes.
+- [**Production readiness**](production-readiness.md) — the compatibility matrix,
+  what's CI-tested vs. validated locally, lifecycle diagrams, and a
+  go-live checklist.
 
 ### 🤝 Contributing
 - [Contributing guide](../CONTRIBUTING.md) — workflow, tests, and the design
@@ -51,3 +54,4 @@ Start with what you're trying to do.
 | [`INTEGRATION.md`](INTEGRATION.md) | How does it attach to Slurm, and what's tested? |
 | [`operations.md`](operations.md) | How do I run it safely — backup, recovery, upgrades? |
 | [`cli-reference.md`](cli-reference.md) | What does each `obol` command do? |
+| [`production-readiness.md`](production-readiness.md) | What's validated, on what, and am I ready to go live? |

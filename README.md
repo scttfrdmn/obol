@@ -133,6 +133,9 @@ bin/obol --socket /tmp/obold.sock show   # balance debited by the 300s consumed,
   fail-open/closed, monitoring, upgrades/rollback, and the admin model.
 - **[`docs/cli-reference.md`](docs/cli-reference.md)** — every `obol` verb, its
   flags, and exit codes.
+- **[`docs/production-readiness.md`](docs/production-readiness.md)** — compatibility
+  matrix, CI-tested vs. locally-validated tiers, lifecycle diagrams, and a go-live
+  checklist.
 - **[`docs/SEAM_DESIGN.md`](docs/SEAM_DESIGN.md)** — the architecture and *why* it
   looks that way (sidecar daemon, three-tier latency, correlation token, failure modes).
 - **[`docs/INTEGRATION.md`](docs/INTEGRATION.md)** — the test tiers and what each proves
