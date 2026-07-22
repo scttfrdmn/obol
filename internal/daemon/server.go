@@ -1074,6 +1074,7 @@ func (s *Server) handleCreate(req *wire.CreateRequest, peer PeerCred) *wire.Fram
 	err := s.reg.Create(AccountConfig{
 		Name: req.Account, Balance: req.Balance, Rate: req.Rate, Window: req.Window,
 		AllowUsers: req.AllowUsers, AllowGroups: req.AllowGroups,
+		BurstEnabled: req.BurstEnabled, BurstCeilingPct: req.BurstCeilingPct, BurstDrawCap: req.BurstDrawCap,
 	})
 	if err != nil {
 		return ackReject(err.Error())

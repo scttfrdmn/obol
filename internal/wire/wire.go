@@ -309,6 +309,13 @@ type CreateRequest struct {
 	Window      string   `json:"window,omitempty"`
 	AllowUsers  []string `json:"allow_users,omitempty"`
 	AllowGroups []string `json:"allow_groups,omitempty"`
+
+	// Optional burst token bucket (#99), mirroring the obold-config.json fields.
+	// Off unless BurstEnabled; set before the account's initial snapshot so it
+	// survives recovery, exactly like the config-created path.
+	BurstEnabled    bool    `json:"burst_enabled,omitempty"`
+	BurstCeilingPct float64 `json:"burst_ceiling_pct,omitempty"`
+	BurstDrawCap    int64   `json:"burst_draw_cap,omitempty"`
 }
 
 // AttachRequest adds or removes users/groups on an account's access list

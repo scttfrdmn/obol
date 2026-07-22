@@ -590,6 +590,8 @@ func cmdCreate(args []string, out, errOut io.Writer) int {
 	balance := fs.Int64("balance", 0, "initial allocation (non-negative)")
 	rate := fs.Int64("rate", 0, "flat cost rate (units/second, positive)")
 	window := fs.String("window", "", "budget window (Go duration, e.g. 720h; default 720h)")
+	burstPct := fs.Float64("burst-ceiling-pct", 0, "enable burst: pot ceiling as a fraction of the allocation, (0,1]")
+	burstCap := fs.Int64("burst-draw-cap", 0, "max burst tokens one job may reserve (0 = unlimited; only with --burst-ceiling-pct)")
 	var users, groups stringList
 	fs.Var(&users, "allow-user", "restrict access to this user (repeatable)")
 	fs.Var(&groups, "allow-group", "restrict access to this group (repeatable)")
@@ -599,9 +601,12 @@ func cmdCreate(args []string, out, errOut io.Writer) int {
 	if *account == "" || *rate <= 0 || *balance < 0 {
 		return fail(errOut, fmt.Errorf("--account, a positive --rate, and a non-negative --balance are required"))
 	}
+	// Burst is enabled by giving a positive ceiling pct; the daemon validates the
+	// range and that a cap isn't set without it.
 	resp, err := roundTrip(*socket, wire.CreateFrame(&wire.CreateRequest{
 		Account: *account, Balance: *balance, Rate: *rate, Window: *window,
 		AllowUsers: users, AllowGroups: groups,
+		BurstEnabled: *burstPct > 0, BurstCeilingPct: *burstPct, BurstDrawCap: *burstCap,
 	}))
 	if err != nil {
 		return fail(errOut, err)

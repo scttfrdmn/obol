@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `obol create` can enable burst on a runtime-created account (#99):
+  `--burst-ceiling-pct` (turns burst on) and `--burst-draw-cap`, mirroring the
+  `obold-config.json` fields. Set before the account's initial snapshot, so it
+  survives a restart exactly like a config-created burst account. (Changing burst
+  on an *existing* account — a logged transition — is the next change.)
+
 ## [0.13.0] - 2026-07-22
 
 Completes the orphan-janitor story: a `reconcile` admin verb drives the kernel's

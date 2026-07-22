@@ -447,6 +447,18 @@ func TestCreateAndAttachVerbs(t *testing.T) {
 	if code, out, _ := run(sock, "detach", "--account", "lab2", "--user", "alice"); code != 0 || !strings.Contains(out, "open") {
 		t.Errorf("detach: exit %d out=%q, want open", code, out)
 	}
+
+	// create a burst-enabled account (#99): --burst-ceiling-pct turns it on.
+	if code, _, errOut := run(sock, "create", "--account", "burstlab", "--balance", "100000", "--rate", "1", "--burst-ceiling-pct", "0.5"); code != 0 {
+		t.Fatalf("burst create exit %d, stderr=%q", code, errOut)
+	}
+	if _, out, _ := run(sock, "show", "--account", "burstlab"); !strings.Contains(out, "Burst:") || strings.Contains(out, "Burst:         disabled") {
+		t.Errorf("burst account shows burst disabled:\n%s", out)
+	}
+	// A bad ceiling pct is rejected by the daemon.
+	if code, _, _ := run(sock, "create", "--account", "bad", "--balance", "1", "--rate", "1", "--burst-ceiling-pct", "2"); code == 0 {
+		t.Error("create with burst-ceiling-pct > 1 should be rejected")
+	}
 }
 
 // TestTransferVerb drives obol transfer between two accounts and confirms both
