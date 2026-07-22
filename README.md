@@ -125,6 +125,9 @@ bin/obol --socket /tmp/obold.sock show   # balance debited by the 300s consumed,
 - **[`docs/configuration.md`](docs/configuration.md)** — the full `obold.json`
   reference: accounts, rates, windows, burst, node-type pricing, admins, and the
   runtime-change verbs.
+- **[`docs/operations.md`](docs/operations.md)** — running it safely: durability &
+  backup/restore, recovery after failure, the orphan janitors + `reconcile`,
+  fail-open/closed, monitoring, upgrades/rollback, and the admin model.
 - **[`docs/SEAM_DESIGN.md`](docs/SEAM_DESIGN.md)** — the architecture and *why* it
   looks that way (sidecar daemon, three-tier latency, correlation token, failure modes).
 - **[`docs/INTEGRATION.md`](docs/INTEGRATION.md)** — the test tiers and what each proves
