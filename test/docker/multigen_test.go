@@ -35,10 +35,14 @@ type generation struct {
 	crbRepo      string // "crb" (Rocky 9/10) | "powertools" (Rocky 8)
 }
 
-// generations is the multi-gen matrix. PR1 wires Gen 2 (the first unconfirmed ABI,
-// on the already-debugged Rocky 9 base); Gen 1 and Gen 3 are added next.
+// generations is the multi-gen matrix — burstlab's three Rocky generations, each
+// built from source (names/versions/bases match ~/src/burstlab/terraform/
+// generations/genN-* and ami/*.pkr.hcl). Rocky 8 carries -devel packages in
+// "powertools"; Rocky 9/10 use "crb". Rocky 10's image lives on quay.io.
 var generations = []generation{
+	{name: "gen1", baseImage: "rockylinux:8", slurmVersion: "22.05.11", crbRepo: "powertools"},
 	{name: "gen2", baseImage: "rockylinux:9", slurmVersion: "23.11.10", crbRepo: "crb"},
+	{name: "gen3", baseImage: "quay.io/rockylinux/rockylinux:10", slurmVersion: "24.05.5", crbRepo: "crb"},
 }
 
 // selectedGenerations filters the matrix by OBOL_INTEG_GENS (comma list); empty =
