@@ -120,6 +120,14 @@ type BindRequest struct {
 	Token    string `json:"token"`
 	JobID    string `json:"jobid"`
 	NodeType string `json:"node_type,omitempty"` // actual node type (issue #65); triggers the cost true-up
+
+	// Array-task binding (#103): when IsArrayTask is set, this BIND is for one
+	// task of an array escrow, identified by Idx within the array the token owns
+	// (the tasks share the token minted for the whole array at gate). Idx alone is
+	// ambiguous (0 is a valid index), so IsArrayTask disambiguates array tasks from
+	// 1:1 jobs.
+	IsArrayTask bool `json:"array_task,omitempty"`
+	Idx         int  `json:"idx,omitempty"`
 }
 
 // BindResponse acknowledges a bind.
@@ -137,6 +145,12 @@ type SettleRequest struct {
 	Kind    SettleKind `json:"kind"`
 	Runtime int64      `json:"runtime,omitempty"` // for complete
 	Elapsed int64      `json:"elapsed,omitempty"` // for cancel/infrafail
+
+	// Array-task settlement (#103): when IsArrayTask is set, settle task Idx of
+	// the array escrow (routing to the matching *Task kernel transition). See
+	// BindRequest for why IsArrayTask disambiguates rather than Idx alone.
+	IsArrayTask bool `json:"array_task,omitempty"`
+	Idx         int  `json:"idx,omitempty"`
 }
 
 // SettleResponse acknowledges a settle.
