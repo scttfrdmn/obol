@@ -1,0 +1,129 @@
+# Multi-generation Slurm-from-source image for the obol integration tier (#16).
+#
+# The packaged tier (Dockerfile.slurm) runs Slurm 22.05 from EPEL on Rocky 9 —
+# fast, but only one generation. burstlab's generations use Slurm versions that
+# are NOT packaged (23.11, 24.05), so this image builds Slurm from the SchedMD
+# source tarball, parameterized by base OS + version, matching burstlab's packer
+# AMIs (~/src/burstlab/ami/*.pkr.hcl): same versions, the same build deps
+# (notably dbus-devel + kernel-headers so configure builds the cgroup/v2 plugin),
+# and the same configure recipe.
+#
+# Differences from burstlab's AMI build, all deliberate for a self-contained
+# container (documented in docs/INTEGRATION.md):
+#   - prefix /usr (not /opt/slurm-baked): the AMI uses /opt for its EFS-rsync
+#     pattern; a container needs Slurm on the default path so the shared
+#     entrypoint's /usr/sbin/slurmctld works unchanged across the packaged and
+#     source images.
+#   - no --enable-slurmrestd: the obol seam doesn't use the REST API, and EPEL 10
+#     dropped http-parser-devel (Rocky 10). Dropping it keeps one recipe for all
+#     three generations.
+#   - no SSM/AWS agent, no EFS: not needed off-cloud.
+#
+# Build args (set per generation by the test harness / make target):
+#   BASE_IMAGE     e.g. rockylinux:8 | rockylinux:9 | quay.io/rockylinux/rockylinux:10
+#   SLURM_VERSION  e.g. 22.05.11 | 23.11.10 | 24.05.5
+#   ENABLE_CRB     "crb" (Rocky 9/10) or "powertools" (Rocky 8) — the repo that
+#                  carries the -devel packages.
+#
+# The obold/obol binaries are built on the host and COPYed in (like the packaged
+# image); no Go toolchain is baked in.
+
+ARG BASE_IMAGE=rockylinux:9
+
+# ---------------------------------------------------------------------------
+# Stage 1: build Slurm from source to a staging prefix.
+# ---------------------------------------------------------------------------
+FROM ${BASE_IMAGE} AS build
+ARG SLURM_VERSION=23.11.10
+ARG ENABLE_CRB=crb
+
+# Build toolchain + the -devel deps burstlab's Rocky 9/10 packer installs. The
+# cgroup/v2 plugin needs dbus-devel + kernel-headers (bpf.h) — without them,
+# configure silently builds only cgroup/v1 and slurmd fails on a v2 host.
+RUN dnf install -y -q epel-release 'dnf-command(config-manager)' \
+ && dnf config-manager --set-enabled ${ENABLE_CRB} \
+ && dnf install -y -q \
+      gcc gcc-c++ make autoconf automake libtool pkgconfig \
+      munge munge-devel munge-libs openssl openssl-devel \
+      pam-devel readline-devel perl \
+      mariadb-devel \
+      dbus-devel kernel-headers \
+      lua-devel \
+      bzip2 wget \
+ && dnf clean all
+# lua-devel is REQUIRED here (beyond burstlab's AMI dep set): the obol GATE seam
+# is a JobSubmitPlugins=lua plugin, so configure must find Lua headers to build
+# job_submit_lua.so. Without it slurmctld fatals ("cannot find job_submit plugin
+# for job_submit/lua"). burstlab's real clusters install it via the workload
+# overlay; here it's a build-stage dep.
+
+# Download + build. Install to a staging DESTDIR so stage 2 copies a clean tree.
+RUN cd /tmp \
+ && wget -q https://download.schedmd.com/slurm/slurm-${SLURM_VERSION}.tar.bz2 \
+ && tar -xjf slurm-${SLURM_VERSION}.tar.bz2 \
+ && cd slurm-${SLURM_VERSION} \
+ && ./configure --prefix=/usr --sysconfdir=/etc/slurm \
+      --with-munge --with-pam_dir=/usr/lib64/security --enable-pam 2>&1 | tail -20 \
+ && make -j"$(nproc)" 2>&1 | tail -5 \
+ && make install DESTDIR=/staging 2>&1 | tail -5
+
+# ---------------------------------------------------------------------------
+# Stage 2: runtime image — Slurm binaries from stage 1 + services + obol seam.
+# ---------------------------------------------------------------------------
+FROM ${BASE_IMAGE}
+ARG ENABLE_CRB=crb
+
+# Runtime packages: munge (auth), mariadb (slurmdbd store), lua + lua-socket (the
+# shim transport), and the libs Slurm links against at runtime. dbus-libs is the
+# runtime side of the cgroup/v2 dbus-devel build dep.
+RUN dnf install -y -q epel-release 'dnf-command(config-manager)' \
+ && dnf config-manager --set-enabled ${ENABLE_CRB} \
+ && dnf install -y -q \
+      munge \
+      mariadb-server mariadb \
+      lua lua-socket \
+      openssl readline pam dbus-libs \
+      procps-ng iproute hostname sudo shadow-utils \
+ && dnf clean all
+
+# Slurm, installed from the build stage into the default prefix (/usr, /etc/slurm).
+COPY --from=build /staging/ /
+
+# Service users + dirs (mirrors the packaged image).
+RUN getent group slurm  >/dev/null || groupadd -r slurm \
+ && getent passwd slurm >/dev/null || useradd -r -g slurm -d /var/lib/slurm -s /sbin/nologin slurm \
+ && install -d -o slurm -g slurm /var/spool/slurmctld /var/spool/slurmd \
+      /var/log/slurm /run/slurm \
+ && install -d -o munge -g munge /var/log/munge /var/lib/munge /run/munge \
+ && install -d -o slurm -g slurm /run/obol /var/lib/obol \
+ && install -d /etc/slurm/lua \
+ && ldconfig
+
+# Config + entrypoint + the obol seam (identical set to the packaged image).
+COPY test/docker/slurm.conf        /etc/slurm/slurm.conf
+COPY test/docker/slurmdbd.conf     /etc/slurm/slurmdbd.conf
+COPY test/docker/cgroup.conf       /etc/slurm/cgroup.conf
+COPY test/docker/obold-config.json /etc/obol/obold-config.json
+COPY test/docker/entrypoint.sh     /usr/local/bin/entrypoint.sh
+COPY seam/lua/obol_wire.lua        /etc/slurm/lua/obol_wire.lua
+COPY seam/lua/obol_transport.lua   /etc/slurm/lua/obol_transport.lua
+COPY seam/lua/job_submit.lua       /etc/slurm/job_submit.lua
+COPY seam/slurm/obol-prolog.sh     /usr/local/bin/obol-prolog.sh
+COPY seam/slurm/obol-epilog.sh     /usr/local/bin/obol-epilog.sh
+COPY seam/slurm/obol-jobcomp.sh    /usr/local/bin/obol-jobcomp.sh
+
+# The obol binaries, built on the host into test/docker/bin/ before docker build.
+COPY test/docker/bin/obold /usr/local/bin/obold
+COPY test/docker/bin/obol  /usr/local/bin/obol
+
+RUN chmod +x /usr/local/bin/entrypoint.sh /usr/local/bin/obol-prolog.sh \
+      /usr/local/bin/obol-epilog.sh /usr/local/bin/obol-jobcomp.sh \
+      /usr/local/bin/obold /usr/local/bin/obol \
+ && chown slurm:slurm /etc/slurm/slurmdbd.conf && chmod 600 /etc/slurm/slurmdbd.conf
+
+ENV LUA_PATH="/etc/slurm/lua/?.lua;;" \
+    OBOL_SOCKET="/run/obol/obold.sock" \
+    OBOL_BIN="/usr/local/bin/obol" \
+    OBOL_NODETYPE="icx"
+
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
