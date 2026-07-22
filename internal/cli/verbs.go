@@ -1,10 +1,12 @@
 package cli
 
 import (
+	"bufio"
 	"flag"
 	"fmt"
 	"io"
 	"math"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -527,6 +529,46 @@ func cmdDispatch(args []string, out, errOut io.Writer) int {
 	}
 	pf(out, "Verdict:  WOULD HOLD (%s)\n", r.Hold)
 	return 3
+}
+
+// cmdReconcile reclaims orphaned escrows: it sends the set of currently-live
+// Slurm job ids so the daemon can sweep STARTED escrows whose job vanished
+// (admin-gated). Job ids come from positional args, or — when none are given —
+// from stdin (one per line / whitespace-separated), e.g. `squeue -h -o %A | obol
+// reconcile`. An empty set is valid: it means "nothing is live", so every started
+// escrow is an orphan.
+func cmdReconcile(args []string, out, errOut io.Writer) int {
+	fs := flag.NewFlagSet("reconcile", flag.ContinueOnError)
+	fs.SetOutput(errOut)
+	socket := socketFlag(fs)
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	ids := fs.Args()
+	if len(ids) == 0 {
+		// Read from stdin (the piped `squeue` case). Split on any whitespace.
+		sc := bufio.NewScanner(os.Stdin)
+		sc.Split(bufio.ScanWords)
+		for sc.Scan() {
+			if tok := strings.TrimSpace(sc.Text()); tok != "" {
+				ids = append(ids, tok)
+			}
+		}
+	}
+	resp, err := roundTrip(*socket, wire.ReconcileFrame(&wire.ReconcileRequest{LiveJobIDs: ids}))
+	if err != nil {
+		return fail(errOut, err)
+	}
+	r := resp.ReconcileResp
+	if r == nil || !r.OK {
+		reason := "empty response"
+		if r != nil {
+			reason = r.Reason
+		}
+		return fail(errOut, fmt.Errorf("reconcile rejected: %s", reason))
+	}
+	pf(out, "ok: reclaimed %d orphaned escrow(s) (%d live job ids)\n", r.Swept, len(ids))
+	return 0
 }
 
 // stringList is a flag.Value that accumulates repeated flags (e.g. --user a

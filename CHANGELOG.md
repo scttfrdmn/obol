@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `obol reconcile` + a `RECONCILE` wire verb wire the kernel's `SweepOrphans` to a
+  live-job feed (#97): `squeue -h -o %A | obol reconcile` hands the daemon the set
+  of currently-live Slurm job ids, and it full-refunds any **started** escrow whose
+  job is no longer live — the lost-completion class, and the started-orphan a crash
+  can strand once its routing is gone. Admin-gated. `SweepOrphans` now sweeps only
+  started escrows/tasks, so it and the unbound-token janitor (#15) partition the
+  orphan space cleanly and never race. Completes the janitor story: both orphan
+  classes are now reclaimed.
+
 ## [0.12.1] - 2026-07-21
 
 Multi-source funding is now reachable from a real `sbatch` (via

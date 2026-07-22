@@ -47,6 +47,8 @@ func Run(args []string, out, errOut io.Writer) int {
 		return cmdSimulate(rest, out, errOut)
 	case "dispatch", "may-dispatch":
 		return cmdDispatch(rest, out, errOut)
+	case "reconcile":
+		return cmdReconcile(rest, out, errOut)
 	case "create":
 		return cmdCreate(rest, out, errOut)
 	case "attach":
@@ -109,6 +111,7 @@ Usage:
   obol attach  --account A [--user U]... [--group G]...   grant access (admin)
   obol detach  --account A [--user U]... [--group G]...   revoke access (admin)
   obol topup   --account A --amount N    add money to an account (admin)
+  obol reconcile [jobid...]              reclaim orphaned escrows (live ids from args or stdin; admin)
   obol transfer --from A --to B (--amount N | --all)  move money between accounts (admin)
   obol list                              list accounts and balances
   obol log     [--account A]             render an account's transaction log

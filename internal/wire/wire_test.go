@@ -61,6 +61,8 @@ func TestRoundTrip(t *testing.T) {
 		{"transfer-resp", &Frame{MsgKind: KindTransfer, TransferResp: &TransferResponse{OK: true, Moved: 500, FromBalance: 100, ToBalance: 600}}},
 		{"dispatch", DispatchFrame(&DispatchRequest{Account: "lab", Partition: "p", TimeLimit: 100})},
 		{"dispatch-resp", &Frame{MsgKind: KindDispatch, DispatchResp: &DispatchResponse{OK: true, Account: "lab", Rate: 2, RateSource: "flat", Dispatch: false, Hold: "insufficient burst headroom", Reserve: 500, Pot: 100}}},
+		{"reconcile", ReconcileFrame(&ReconcileRequest{LiveJobIDs: []string{"1", "2", "4711_3"}})},
+		{"reconcile-resp", &Frame{MsgKind: KindReconcile, ReconcileResp: &ReconcileResponse{OK: true, Swept: 3}}},
 		{"ping", PingFrame()},
 	}
 	for _, tc := range cases {
@@ -141,6 +143,15 @@ func assertFrameEqual(t *testing.T, want, got *Frame) {
 	case want.Dispatch != nil:
 		if got.Dispatch == nil || *got.Dispatch != *want.Dispatch {
 			t.Errorf("dispatch: got %+v, want %+v", got.Dispatch, want.Dispatch)
+		}
+	case want.Reconcile != nil:
+		// ReconcileRequest has a slice field; compare with DeepEqual.
+		if got.Reconcile == nil || !reflect.DeepEqual(*got.Reconcile, *want.Reconcile) {
+			t.Errorf("reconcile: got %+v, want %+v", got.Reconcile, want.Reconcile)
+		}
+	case want.ReconcileResp != nil:
+		if got.ReconcileResp == nil || *got.ReconcileResp != *want.ReconcileResp {
+			t.Errorf("reconcile_resp: got %+v, want %+v", got.ReconcileResp, want.ReconcileResp)
 		}
 	case want.DispatchResp != nil:
 		if got.DispatchResp == nil || *got.DispatchResp != *want.DispatchResp {

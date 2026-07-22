@@ -414,7 +414,7 @@ Each Slurm event invokes a kernel transition that is already built and tested:
 | admin remove money | `Withdraw(amount, now)` (lowers B and B0; caps at available B) |
 | admin move money | `obol transfer` → `Withdraw` + `TopUp`, journaled (§12.1) |
 | crash recovery | WAL replay through the same transitions |
-| lost completion | `SweepOrphans(liveIDs, policy, now)` (jobid-based) |
+| lost completion / started-orphan-after-crash | `SweepOrphans(liveKeys, policy, now)` — sweeps STARTED escrows absent from the live set; driven by the `reconcile` verb (#97) fed live job ids from `squeue` |
 | never-bound token (submit→start crash) | `SweepUnbound(ttl, now)` — full refund of stale never-started escrows |
 
 The seam adds no new money or burst logic — it only routes real events onto transitions whose
@@ -457,6 +457,11 @@ money committed to live work can never be moved out from under it.
    `SweepUnbound(ttl, now)` janitor reclaims any never-started escrow older than `ttl` with a
    full refund (it provably never ran). `obold` drives it on a ticker (`-unbound-ttl`,
    `-sweep-interval`). This is the one orphan class the jobid-based `SweepOrphans` cannot match.
+   Its complement — a STARTED escrow whose job vanished (lost completion, or a crash that lost the
+   daemon's routing) — is now handled too: *resolved (issue #97).* The `reconcile` admin verb takes
+   the live Slurm job-id set (`squeue -h -o %A | obol reconcile`), the daemon maps it to live
+   escrow keys, and `SweepOrphans` full-refunds the started escrows no longer live. The two
+   janitors partition the orphan space by `Started`, so they never race.
 3. **Group commit** — *resolved (issue #6).* `Append` writes the record to the page cache and
    returns; a background committer batches `fsync`s off the caller's path (while one slow `fsync`
    is in flight, more appends accumulate and the next `fsync` covers them all). The torn-tail

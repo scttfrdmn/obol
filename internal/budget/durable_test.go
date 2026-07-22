@@ -130,16 +130,23 @@ func TestDurableSnapshotThenReplay(t *testing.T) {
 func TestOrphanJanitor(t *testing.T) {
 	dir := t.TempDir()
 	bd, _ := NewDurable(dir, 10, 100000, 0, 10000, false)
+	// SweepOrphans reclaims STARTED (bound) escrows whose job vanished, so start
+	// each before it "disappears" from Slurm. (Never-started work is SweepUnbound's
+	// job — asserted separately below.)
 	bd.Submit("alive", 100, 10)
+	bd.Start("alive", 15)
 	bd.Submit("orphan1", 100, 10)
+	bd.Start("orphan1", 15)
 	bd.SubmitArray("orphanArr", 3, 50, 10)
 	bd.StartTask("orphanArr", 0, 20)
+	bd.StartTask("orphanArr", 1, 20)
+	bd.StartTask("orphanArr", 2, 20)
 
 	balBefore := bd.Balance()
 	// Slurm reports only "alive" still exists.
 	live := map[string]bool{"alive": true}
 	swept := bd.SweepOrphans(live, OrphanConsumeFull, 300)
-	// orphan1 (1) + 3 array tasks (3) = 4 swept.
+	// orphan1 (1) + 3 started array tasks (3) = 4 swept.
 	if swept != 4 {
 		t.Fatalf("swept=%d want 4", swept)
 	}
@@ -156,6 +163,32 @@ func TestOrphanJanitor(t *testing.T) {
 	// ConsumeFull => no refund, so balance unchanged (orphans billed full walltime).
 	if bd.Balance() != balBefore {
 		t.Fatalf("ConsumeFull refunded: %d -> %d", balBefore, bd.Balance())
+	}
+}
+
+// TestSweepOrphansSkipsUnstarted confirms the division of labor with SweepUnbound
+// (#15/#97): a never-started escrow is NOT swept by SweepOrphans even when it's
+// absent from the live set — an unbound escrow has no bound job id, so it can't be
+// in a jobid-derived live set and must be left to the TTL sweep, not billed here.
+func TestSweepOrphansSkipsUnstarted(t *testing.T) {
+	bd := New(10, 100000, 0, 10000)
+	bd.Submit("pending", 100, 10) // gated, never started (submit→start window)
+	bd.SubmitArray("pendingArr", 2, 50, 10)
+	// StartTask none — the whole array is unbound.
+
+	// Nothing is "live", but nothing started either → nothing swept.
+	if swept := bd.SweepOrphans(map[string]bool{}, OrphanConsumeFull, 300); swept != 0 {
+		t.Fatalf("SweepOrphans swept %d unstarted escrows, want 0 (left to SweepUnbound)", swept)
+	}
+	if _, ok := bd.escrows["pending"]; !ok {
+		t.Error("SweepOrphans reclaimed a never-started 1:1 escrow")
+	}
+	if bd.LiveArrays() != 1 {
+		t.Error("SweepOrphans reclaimed a never-started array")
+	}
+	// And SweepUnbound (the right owner) does reclaim them once past the TTL.
+	if swept := bd.SweepUnbound(100, 300); swept != 3 { // 1 escrow + 2 array tasks
+		t.Errorf("SweepUnbound swept %d, want 3", swept)
 	}
 }
 
