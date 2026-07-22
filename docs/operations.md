@@ -33,6 +33,23 @@ path (with `-sync true`, the production default). The discipline: a crash before
 the fsync loses the un-synced tail *and* the in-memory change together, so a torn
 tail is simply discarded on replay — the books never go inconsistent.
 
+**Acknowledged vs. physically synced.** A command is **acknowledged to the caller
+as soon as the in-memory state changes** (the escrow/settle is applied and the
+record is in the page cache) — *not* after its `fdatasync`, which lands a moment
+later under group commit. So on sudden power loss, the most recent acknowledged
+batch — the records written but not yet fsynced — can be lost. This is safe by
+construction, not a hole: the in-memory change and the un-synced WAL tail are
+lost *together*, so recovery replays a consistent state in which those operations
+simply never happened (a gate whose SUCCESS wasn't durably committed is
+indistinguishable, after recovery, from a job that never gated). Conservation
+holds either way. The trade is deliberate — it keeps the submit gate off the disk
+so it stays sub-millisecond on the controller lock ([SEAM_DESIGN.md](SEAM_DESIGN.md)
+§3). "Committed" (survives any crash) therefore means "in a completed fsync
+batch"; "acknowledged" (the caller saw success) may be a hair ahead of that on a
+power-loss timeline. If you need every ack to be physically durable before the
+reply, that would be a synchronous-commit mode — not currently offered, since the
+lost-batch window self-heals into a consistent state.
+
 **How recovery works:** on start, `obold` loads each account's `snapshot.json`,
 then replays the WAL records after the snapshot's offset **through the same code
 paths used live**, and asserts conservation. Because transitions are pure

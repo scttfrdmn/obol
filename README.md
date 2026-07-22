@@ -37,10 +37,10 @@ generations.
 |-------|-------|
 | `internal/budget` — money kernel | **built & tested**: exact-integer conservation + concurrency under `-race`, crash-safe WAL + snapshot recovery |
 | `obold` — sidecar daemon | **built & tested**: GATE/BIND/SETTLE, multi-account, burst dispatch, transfers, reconciliation, orphan janitors |
-| `obol` — admin/diagnostic CLI | **built & tested**: 19 verbs — `show` `list` `log` `gate` `bind` `settle` `create` `attach`/`detach` `topup` `transfer` `set-rate` `set-window` `set-burst` `resolve` `simulate` `dispatch` `reconcile` `ping` |
+| `obol` — admin/diagnostic CLI | **built & tested**: account management, funding, pricing, simulation, burst dispatch, lifecycle ops, and reconciliation ([19 commands](docs/cli-reference.md)) |
 | Slurm seam — `job_submit.lua` + prolog/jobcomp | **built & validated in Docker** on Slurm **22.05 / 23.11 / 24.05** (Rocky 8/9/10), from source ([`docs/INTEGRATION.md`](docs/INTEGRATION.md)) |
 | `site_factor` burst-dispatch plugin | **reference C source** (`seam/plugin/`); the decision is daemon-side and tested, the plugin isn't yet CI-built |
-| Production hardening | maturing — see the operator-guide gaps in the [docs backlog](https://github.com/scttfrdmn/obol/issues) |
+| Production hardening | maturing — see [`docs/production-readiness.md`](docs/production-readiness.md) for validated environments, known limitations, and the go-live checklist |
 
 **Compatibility (pre-1.0):** minor versions may break the wire protocol and on-disk state
 format; patch versions are fixes. Slurm targets are 22.05 / 23.11 / 24.05. Not yet

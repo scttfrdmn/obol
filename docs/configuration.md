@@ -109,7 +109,7 @@ instead of a flat rate. Two fields work together:
   "node_types": {
     "spr": {"rate": 10},
     "icx": {"rate": 6},
-    "a100": {"rate": 250, "per": "h"}
+    "a100": {"rate": 7200, "per": "h"}
   },
   "partitions": [
     {"name": "priced", "node_types": ["spr", "icx"]},
@@ -126,11 +126,25 @@ A `node_types` entry is a **NodeRate**:
 | `rate` | int | *(required)* | cost per unit of time, must be > 0 |
 | `per` | string | `s` | the time unit: `s`, `m`, or `h` |
 
-`per` is admin convenience: `{"rate": 250, "per": "h"}` means 250 units/hour. It
-must divide evenly into a whole number of units per **second** (the kernel bills
-per second in integer money) — `250/h` is fine (`250` isn't divisible by 3600, so
-this specific one would be **rejected**; use a `rate` that divides, or express it
-per second). This keeps money exact.
+`per` is admin convenience: `{"rate": 7200, "per": "h"}` means 7200 units/hour,
+which the kernel stores as **2 units/second** (the kernel bills per second in
+integer money). The rate must divide **evenly** into a whole number of
+units/second, or the config is **rejected at startup** — this is what keeps money
+exact:
+
+- ✅ `{"rate": 7200, "per": "h"}` → `7200 / 3600 = 2` units/sec.
+- ✅ `{"rate": 60, "per": "m"}` → `60 / 60 = 1` unit/sec.
+- ❌ `{"rate": 250, "per": "h"}` → `250 / 3600` is not a whole number → rejected
+  at startup: `rate 250 per "h" is not a whole number of units/second (3600 does
+  not divide 250)`.
+
+**Practical note:** because of this, choose your money-unit precision so hourly
+prices land on whole units/second. Finer precision makes more rates
+expressible — e.g. at **1 unit = $0.01**, a `$1.00/hour` node is `{"rate": 100,
+"per": "h"}` → `100/3600`, still **not** divisible; but `$36.00/hour` is
+`{"rate": 3600, "per": "h"}` → exactly `1` unit/sec. When an hourly price won't
+divide, express the rate **per second** directly (`per: "s"`, the default) at a
+unit precision fine enough to represent it.
 
 How pricing is chosen at the gate (see
 [`concepts.md` §3](concepts.md#3-cost-flat-rate-tres-weights-or-node-type-pricing)):

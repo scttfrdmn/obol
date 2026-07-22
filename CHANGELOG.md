@@ -8,6 +8,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- Docs review follow-ups: fixed the contradictory node-type pricing example in
+  `configuration.md` (valid divisible example + an explicitly-labeled invalid one
+  with the exact rejection message, plus a note on choosing money-unit precision);
+  clarified the **acknowledged-vs-physically-synced** boundary in `operations.md`
+  (the gate acks on the in-memory change, before its group-commit `fdatasync`; a
+  power-loss window self-heals into a consistent state); refreshed two stale
+  references (README "docs backlog" → the production-readiness guide;
+  `installation.md` "once written" parenthetical removed); trimmed the README
+  maturity table's CLI row to a scannable summary linking the CLI reference; and
+  removed the terminal-recordings item (declined as unnecessary for this project).
+
+### Changed
 - README overhaul: the opening now states the audience, the operator problem, the
   reservation mechanism, and how Obol differs from native Slurm accounting/QOS
   (with a worked $10k-lab example); a **Maturity & compatibility** section
