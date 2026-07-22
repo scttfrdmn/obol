@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-07-21
+
+Job arrays end to end. An `sbatch --array` submission is now budget-enforced
+through the whole seam: gated as one escrow, then bound and settled per task, with
+each task drawing and refunding its own slice. Minor bump: additive
+`array_task`+`idx` wire fields and `obol bind/settle --idx`; the array kernel was
+already built, so this is seam/daemon plumbing — 1:1 jobs are unchanged.
+
 ### Added
 - Single-source job arrays now flow through the seam end to end (#103, toward
   #96). The GATE shim (`job_submit.lua`) reads `--array` and gates all N tasks as
@@ -434,7 +442,8 @@ lock-cheap read path (#7), and config durability (#8).
 - Seam design document (`docs/SEAM_DESIGN.md`) describing the Slurm attachment.
 - Project scaffold: CI (race + lint + coverage), release pipeline, governance.
 
-[Unreleased]: https://github.com/scttfrdmn/obol/compare/v0.10.1...HEAD
+[Unreleased]: https://github.com/scttfrdmn/obol/compare/v0.11.0...HEAD
+[0.11.0]: https://github.com/scttfrdmn/obol/compare/v0.10.1...v0.11.0
 [0.10.1]: https://github.com/scttfrdmn/obol/compare/v0.10.0...v0.10.1
 [0.10.0]: https://github.com/scttfrdmn/obol/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/scttfrdmn/obol/compare/v0.8.0...v0.9.0
