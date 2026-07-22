@@ -54,10 +54,11 @@ design](docs/SEAM_DESIGN.md). The architecture — sidecar daemon, three-tier la
 Obol is a sidecar daemon (`obold`) plus a Slurm `job_submit` shim that calls it. A minimal
 multi-account deployment:
 
-**1. Build (or grab a release binary from the [releases page](https://github.com/scttfrdmn/obol/releases)).**
+**1. Install the binaries on the controller** — grab a release from the
+[releases page](https://github.com/scttfrdmn/obol/releases), or build them:
 
 ```
-make build     # -> bin/obold, bin/obol
+make build && sudo install bin/obold bin/obol /usr/local/bin/
 ```
 
 **2. Write a config** (`obold.json`) — accounts with money balances, a cost rate, and a window:
@@ -73,10 +74,10 @@ make build     # -> bin/obold, bin/obol
 
 `rate` is money per second of walltime (or set per-node/TRES pricing — see the config docs).
 
-**3. Start the daemon:**
+**3. Start the daemon** (defaults: socket `/run/obol/obold.sock`, state `/var/lib/obol`):
 
 ```
-bin/obold -socket /run/obol/obold.sock -state-dir /var/lib/obol -config obold.json
+obold -config obold.json
 ```
 
 **4. Install the shim** so slurmctld calls Obol at submit. In `slurm.conf`:
@@ -95,22 +96,26 @@ exact install (the containerized tier in `test/docker/` is a complete working ex
 
 ```
 sbatch --account=lab_smith --time=60 job.sh     # reserved at submit; settled + refunded on exit
-bin/obol --socket /run/obol/obold.sock show --account lab_smith   # balance, reserved, burn rate
+obol show --account lab_smith                    # balance, reserved, burn rate
 ```
+
+`obol` talks to the default socket automatically; pass `--socket PATH` only if you
+ran `obold` on a non-default socket.
 
 <details>
 <summary>Developer demo: drive the money lifecycle without Slurm</summary>
 
 The gate/bind/settle primitives the shim uses can be exercised directly against the daemon —
-useful for testing the wire protocol, not how an operator uses Obol:
+useful for testing the wire protocol, not how an operator uses Obol. This one uses a
+throwaway socket under `/tmp`, so the commands pass `--socket` to match:
 
 ```
-bin/obold -socket /tmp/obold.sock -state-dir /tmp/obol -create -balance 5000 -rate 1 &
-bin/obol --socket /tmp/obold.sock show
-tok=$(bin/obol --socket /tmp/obold.sock gate --account lab --partition cloud --time-limit 1000)
-bin/obol --socket /tmp/obold.sock bind   --token "${tok#allow }" --jobid 42
-bin/obol --socket /tmp/obold.sock settle --jobid 42 --kind complete --runtime 300
-bin/obol --socket /tmp/obold.sock show   # balance debited by the 300s consumed, tail refunded
+obold -socket /tmp/obold.sock -state-dir /tmp/obol -create -balance 5000 -rate 1 &
+obol --socket /tmp/obold.sock show
+tok=$(obol --socket /tmp/obold.sock gate --account lab --partition cloud --time-limit 1000)
+obol --socket /tmp/obold.sock bind   --token "${tok#allow }" --jobid 42
+obol --socket /tmp/obold.sock settle --jobid 42 --kind complete --runtime 300
+obol --socket /tmp/obold.sock show   # balance debited by the 300s consumed, tail refunded
 ```
 </details>
 
@@ -163,24 +168,6 @@ The kernel holds these exactly, and they must never regress (see `CLAUDE.md`):
 
 GitHub is the source of truth for planning (issues/milestones/labels). PRs only; `main` is
 protected. See [`CONTRIBUTING.md`](CONTRIBUTING.md).
-
-## Branding
-
-Project artwork lives in [`docs/assets/`](docs/assets/) — the obol mascot is an
-owl-faced ancient coin (the owl for the Athenian obol; the ledger for the books it
-keeps) minding the **OBOL GATE** that every job passes through:
-
-| Asset | Use |
-|-------|-----|
-| `obol-hero.png` | wide banner (the README header above) |
-| `obol-logo.png` | square logo + tagline |
-| `obol-open-graph.png` | social preview card (see below) |
-| `obol-sticker.png` | die-cut sticker, transparent background (swag) |
-
-`obol-open-graph.png` is the GitHub **social preview** (the card shown when the
-repo is linked on GitHub/Slack/X). GitHub can't pick it up from the repo tree — it
-must be uploaded once as a repo setting: **Settings → General → Social preview →
-Edit → Upload an image**, then choose `docs/assets/obol-open-graph.png`.
 
 ## License
 

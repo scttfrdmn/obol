@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- README/docs cleanup: removed the README Branding section; the quickstart and
+  verify steps now install the binaries to `PATH` and invoke bare `obold`/`obol`
+  (was `bin/obold`), and dropped the redundant `--socket /run/obol/obold.sock`
+  everywhere — `obol` uses that default automatically, so `--socket` is now shown
+  only where a non-default socket is actually used (the developer demo). Docs note
+  it's optional.
 - Docs review follow-ups: fixed the contradictory node-type pricing example in
   `configuration.md` (valid divisible example + an explicitly-labeled invalid one
   with the exact rejection message, plus a note on choosing money-unit precision);

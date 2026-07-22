@@ -91,7 +91,7 @@ transfers, config changes — each with amounts and the logical timestamp). Capt
 it for audit/export:
 
 ```
-obol --socket /run/obol/obold.sock log --account lab_smith > lab_smith-ledger.txt
+obol log --account lab_smith > lab_smith-ledger.txt
 ```
 
 Since the WAL isn't truncated, the log is the complete history for the account's
@@ -144,7 +144,7 @@ set**. Run it periodically (cron/timer on the controller), and once after a
 controller restart:
 
 ```
-squeue -h -o '%A' | obol --socket /run/obol/obold.sock reconcile
+squeue -h -o '%A' | obol reconcile
 ```
 
 It's an **admin** verb (see below). It never touches never-started escrows (those
@@ -178,7 +178,7 @@ node failures (see [`concepts.md` §7](concepts.md#7-partition-policy-billed-vs-
 
 ## Monitoring & health
 
-- **Liveness:** `obol --socket … ping` (exit 0 = reachable). Wire it to your
+- **Liveness:** `obol ping` (exit 0 = reachable). Wire it to your
   health checker.
 - **Per-account state:** `obol show --account <name>` prints balance, reserved,
   consumed, write-off, burn rate, time-to-empty, burst pot, and a **conservation
