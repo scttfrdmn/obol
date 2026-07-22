@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-07-22
+
+Completes the orphan-janitor story: a `reconcile` admin verb drives the kernel's
+`SweepOrphans` from a live-job feed, reclaiming started escrows whose job vanished
+(lost completion, or a crash that stranded the routing) — the complement to the
+unbound-token TTL sweep. Minor bump: additive `RECONCILE` wire message; kernel
+change scopes `SweepOrphans` to started escrows so the two janitors don't race.
+
 ### Added
 - `obol reconcile` + a `RECONCILE` wire verb wire the kernel's `SweepOrphans` to a
   live-job feed (#97): `squeue -h -o %A | obol reconcile` hands the daemon the set
@@ -484,7 +492,8 @@ lock-cheap read path (#7), and config durability (#8).
 - Seam design document (`docs/SEAM_DESIGN.md`) describing the Slurm attachment.
 - Project scaffold: CI (race + lint + coverage), release pipeline, governance.
 
-[Unreleased]: https://github.com/scttfrdmn/obol/compare/v0.12.1...HEAD
+[Unreleased]: https://github.com/scttfrdmn/obol/compare/v0.13.0...HEAD
+[0.13.0]: https://github.com/scttfrdmn/obol/compare/v0.12.1...v0.13.0
 [0.12.1]: https://github.com/scttfrdmn/obol/compare/v0.12.0...v0.12.1
 [0.12.0]: https://github.com/scttfrdmn/obol/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/scttfrdmn/obol/compare/v0.10.1...v0.11.0
