@@ -196,11 +196,14 @@ prolog/jobcomp scripts live in [`../seam/`](../seam/); the environment they read
 
 ## 6. Verify
 
+`obol` uses the default socket (`/run/obol/obold.sock`) automatically — pass
+`--socket PATH` only if you ran `obold -socket` on a non-default path.
+
 ```
-obol --socket /run/obol/obold.sock ping                 # daemon reachable
-obol --socket /run/obol/obold.sock list                 # accounts + balances
-obol --socket /run/obol/obold.sock show --account lab_smith
-sbatch --account=lab_smith --time=1 --wrap="true"        # gated at submit
+obol ping                        # daemon reachable
+obol list                        # accounts + balances
+obol show --account lab_smith
+sbatch --account=lab_smith --time=1 --wrap="true"   # gated at submit
 ```
 
 If `list` shows your accounts with the balances from the config, the daemon and

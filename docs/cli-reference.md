@@ -1,8 +1,8 @@
 # `obol` CLI reference
 
 `obol` is the admin/diagnostic client; it talks to a running `obold` over its Unix
-socket. Every command takes `--socket` (default `/run/obol/obold.sock`); it may be
-given before or after the verb.
+socket. It uses `/run/obol/obold.sock` by default — pass `--socket PATH` only for
+a non-default socket; when given, it may go before or after the verb.
 
 ```
 obol [--socket PATH] <verb> [flags]
