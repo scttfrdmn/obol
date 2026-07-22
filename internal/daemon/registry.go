@@ -165,6 +165,9 @@ func (r *Registry) Create(a AccountConfig) error {
 	if _, err := a.windowOrDefault(); err != nil {
 		return err
 	}
+	if err := a.validateBurst(); err != nil {
+		return err
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if _, ok := r.budgets[a.Name]; ok {

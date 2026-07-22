@@ -54,6 +54,7 @@ func TestRoundTrip(t *testing.T) {
 		{"resolve", ResolveFrame(&ResolveRequest{Account: "lab", Partition: "priced", TimeLimit: 100})},
 		{"simulate", SimulateFrame(&SimulateRequest{Account: "lab", TimeLimit: 100})},
 		{"create", CreateFrame(&CreateRequest{Account: "lab2", Balance: 5000, Rate: 2})},
+		{"create-burst", CreateFrame(&CreateRequest{Account: "lab3", Balance: 5000, Rate: 2, BurstEnabled: true, BurstCeilingPct: 0.5, BurstDrawCap: 2000})},
 		{"attach", AttachFrame(&AttachRequest{Account: "lab2", Users: []string{"alice"}})},
 		{"attach-resp", &Frame{MsgKind: KindAttach, AttachResp: &AttachResponse{OK: true}}},
 		{"transfer", TransferFrame(&TransferRequest{From: "a", To: "b", Amount: 500})},
@@ -156,6 +157,11 @@ func assertFrameEqual(t *testing.T, want, got *Frame) {
 	case want.DispatchResp != nil:
 		if got.DispatchResp == nil || *got.DispatchResp != *want.DispatchResp {
 			t.Errorf("dispatch_resp: got %+v, want %+v", got.DispatchResp, want.DispatchResp)
+		}
+	case want.Create != nil:
+		// CreateRequest has slice fields; compare with DeepEqual.
+		if got.Create == nil || !reflect.DeepEqual(*got.Create, *want.Create) {
+			t.Errorf("create: got %+v, want %+v", got.Create, want.Create)
 		}
 	}
 }

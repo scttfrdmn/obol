@@ -269,6 +269,45 @@ func TestRegistryBurstConfigSurvivesRestart(t *testing.T) {
 	}
 }
 
+// TestRegistryCreateBurstSurvivesRestart: a runtime-created account with burst
+// enabled (#99) applies burst before its initial snapshot and recovers unchanged
+// — the same ordering guarantee the config path has, now for obol create.
+func TestRegistryCreateBurstSurvivesRestart(t *testing.T) {
+	dir := t.TempDir()
+	reg, err := NewRegistry(twoAccountConfig(), dir, false, testNow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := reg.Create(AccountConfig{
+		Name: "burstlab", Balance: 100000, Rate: 1, Window: "1000000s",
+		BurstEnabled: true, BurstCeilingPct: 0.5, BurstDrawCap: 2000,
+	}); err != nil {
+		t.Fatalf("Create with burst: %v", err)
+	}
+	if bd, _ := reg.Resolve("burstlab"); !bd.Report(testNow()).BurstEnabled {
+		t.Fatal("burst not enabled on the created account")
+	}
+	// Bad burst config is rejected at create.
+	if err := reg.Create(AccountConfig{Name: "bad", Balance: 1, Rate: 1, BurstEnabled: true, BurstCeilingPct: 2}); err == nil {
+		t.Error("create should reject burst_ceiling_pct > 1")
+	}
+	_ = reg.Close()
+
+	// Reopen with no intervening mutation: burst must survive (offset-0 snapshot).
+	reg2, err := NewRegistry(twoAccountConfig(), dir, false, testNow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = reg2.Close() }()
+	bd, err := reg2.Resolve("burstlab")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r := bd.Report(testNow()); !r.BurstEnabled || r.BurstCeiling != 50000 {
+		t.Errorf("burst lost across restart: enabled=%v ceiling=%d", r.BurstEnabled, r.BurstCeiling)
+	}
+}
+
 // TestRegistrySweepUnbound confirms the registry-wide unbound-token sweep reaches
 // every account's budget and reclaims stale never-started escrows.
 func TestRegistrySweepUnbound(t *testing.T) {
