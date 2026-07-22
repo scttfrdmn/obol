@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Multi-generation Docker Slurm integration tier (#16): `make integ-docker-multigen`
+  builds Slurm **from source** at each burstlab generation's exact version
+  (22.05.11 / 23.11.10 / 24.05.5) on its matching Rocky base, and runs the GATE→
+  SETTLE money path + the `admin_comment` token round-trip against each — resolving
+  the per-generation §10 ABI question. Recipe matched to burstlab's packer AMIs
+  (`Dockerfile.slurm-src`, parameterized by base/version). Opt-in, local, behind
+  the `docker_multigen` build tag (not in CI; ~10–20 min/image). Gen 2 (23.11)
+  wired in this change and validated end to end; Gen 1/3 follow.
+
 ## [0.10.0] - 2026-07-21
 
 Multi-source funding. A single Slurm job can now draw from **multiple account

@@ -1,16 +1,17 @@
 # Integration testing
 
-obol has three test tiers, in increasing fidelity and cost:
+obol has four test tiers, in increasing fidelity and cost:
 
 | Tier | Command | What it proves | Needs |
 |------|---------|----------------|-------|
 | **Unit** | `make test` / `make race` | kernel invariants, wire framing, daemon/CLI over a socket, Lua↔Go framing | Go (+ `lua` for the seam cross-check) |
-| **Docker Slurm** | `make integ-docker` | the **real** GATE seam against an actual `slurmctld`: gate → escrow → run → jobcomp SETTLE → refund, plus multi-user/multi-account submission | Docker |
+| **Docker Slurm** | `make integ-docker` | the **real** GATE seam against an actual `slurmctld` (packaged 22.05): gate → escrow → run → jobcomp SETTLE → refund, plus multi-user/multi-account submission | Docker |
+| **Docker multi-gen** | `make integ-docker-multigen` | the seam against Slurm **built from source** at each burstlab generation's exact version (22.05 / 23.11 / 24.05) — resolves the per-generation §10 ABI question | Docker (slow: ~10-20 min/image) |
 | **ParallelCluster** | `make integ-pcluster` | the seam on real multi-node AWS Slurm with cloud partition policy | an AWS PC cluster + creds |
 
 The default `go test ./...` runs only the unit tier; the integration tiers are
-behind build tags (`docker_integration`, `integration`) and skip cleanly when
-their environment is absent.
+behind build tags (`docker_integration`, `docker_multigen`, `integration`) and
+skip cleanly when their environment is absent.
 
 ## Docker single-node Slurm (`make integ-docker`)
 
@@ -28,8 +29,8 @@ make integ-docker
 deliberate target: 22.05 is burstlab Gen 1 and the generation whose
 `admin_comment` writability was the first unconfirmed blocker
 (`SEAM_DESIGN.md` §10 / §13 gap #1). This tier **confirms it works** — the gate
-stamps and reads the token on 22.05. Newer generations (23.11 / 24.05) come from
-source builds under issue #16.
+stamps and reads the token on 22.05. Newer generations (23.11 / 24.05) are the
+multi-gen tier below.
 
 **What the harness asserts:**
 - `TestFundedJobLifecycle` — a funded job gates (60-unit escrow), runs, and the
@@ -52,6 +53,50 @@ source builds under issue #16.
   initializes without a system dbus.
 - `slurm.conf` uses `proctrack/linuxproc` + `task/none` and
   `SlurmdParameters=config_overrides` so no real cgroup controllers are required.
+
+## Docker multi-generation Slurm (`make integ-docker-multigen`)
+
+The packaged tier proves the seam on one Slurm version (22.05). burstlab spans
+three Slurm generations, and `SEAM_DESIGN.md` §10 notes the Lua `job_desc` field
+set (`admin_comment` read/write, `tres`/`time_limit`, `site_factor`) can vary
+between them — so each generation must be validated. 23.11 and 24.05 are **not
+packaged** (EPEL has only 22.05 on Rocky 9), so this tier builds Slurm **from the
+SchedMD source tarball**, one image per generation, matching burstlab's packer
+AMIs (`~/src/burstlab/ami/*.pkr.hcl`):
+
+| Gen | Base | Slurm | Matches burstlab |
+|-----|------|-------|------------------|
+| gen1 | Rocky 8 | 22.05.11 | `gen1-slurm2205-rocky8` |
+| gen2 | Rocky 9 | 23.11.10 | `gen2-slurm2311-rocky9` |
+| gen3 | Rocky 10 | 24.05.5 | `gen3-slurm2405-rocky10` |
+
+```
+make integ-docker-multigen                     # all defined generations
+make integ-docker-multigen OBOL_INTEG_GENS=gen2   # one generation
+```
+
+`test/docker/Dockerfile.slurm-src` is parameterized by `BASE_IMAGE` /
+`SLURM_VERSION` / `ENABLE_CRB`; the harness (`test/docker/multigen_test.go`,
+`//go:build docker_multigen`) builds + boots + exercises each generation in its
+own image/container. Each generation runs the funded lifecycle and asserts the
+**admin_comment token round-trip** — the §10 concern — proving the shim's
+`slurm_job_submit` write works on that Slurm version.
+
+**Deliberate divergences from burstlab's AMIs** (a self-contained container, not
+an EFS-backed cloud node):
+- **Prefix `/usr`, not `/opt/slurm-baked`** — burstlab uses `/opt` for its
+  EFS-rsync pattern; a container needs Slurm on the default path so the shared
+  `entrypoint.sh` (`/usr/sbin/slurmctld` …) works unchanged across both images.
+- **No `--enable-slurmrestd`** — the seam doesn't use the REST API, and EPEL 10
+  dropped `http-parser-devel`; omitting it keeps one recipe for all three gens.
+- **`lua-devel` added** to the build deps (beyond burstlab's AMI set) — the GATE
+  seam is a `JobSubmitPlugins=lua` plugin, so `configure` must build
+  `job_submit_lua.so` (filed as burstlab#6 for its optional-obol path).
+- **`task/none` + `proctrack/linuxproc`** kept from the packaged tier — this
+  validates the obol **seam**, not Slurm's cgroup enforcement (which containers
+  can't do cleanly); burstlab uses `task/cgroup` on real nodes. `dbus-devel` +
+  `kernel-headers` are still installed so `configure` builds the cgroup/v2 plugin
+  (matching burstlab), even though the tests don't rely on cgroup controllers.
 
 ## Scope of the seam under test
 
