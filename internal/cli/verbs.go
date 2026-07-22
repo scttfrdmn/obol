@@ -326,6 +326,43 @@ func cmdSetRate(args []string, out, errOut io.Writer) int {
 	return ackResult(out, errOut, resp, fmt.Sprintf("rate for %s set to %d/s", *account, *rate))
 }
 
+// cmdSetBurst changes an account's burst config at runtime (admin-gated, #99):
+// enable/re-ceiling with --ceiling-pct (+ optional --draw-cap), or turn it off
+// with --disable. It's a logged kernel transition, so the change survives restart.
+func cmdSetBurst(args []string, out, errOut io.Writer) int {
+	fs := flag.NewFlagSet("set-burst", flag.ContinueOnError)
+	fs.SetOutput(errOut)
+	socket := socketFlag(fs)
+	account := fs.String("account", "", "account")
+	pct := fs.Float64("ceiling-pct", 0, "burst pot ceiling as a fraction of the allocation, (0,1]; enables burst")
+	cap := fs.Int64("draw-cap", 0, "max burst tokens one job may reserve (0 = unlimited)")
+	disable := fs.Bool("disable", false, "turn burst off (mutually exclusive with --ceiling-pct)")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if *account == "" {
+		return fail(errOut, fmt.Errorf("--account is required"))
+	}
+	if *disable == (*pct > 0) { // neither, or both
+		return fail(errOut, fmt.Errorf("provide exactly one of --ceiling-pct (to enable) or --disable"))
+	}
+	req := &wire.SetBurstRequest{Account: *account}
+	if !*disable {
+		req.Enabled = true
+		req.CeilingPct = *pct
+		req.DrawCap = *cap
+	}
+	resp, err := roundTrip(*socket, wire.SetBurstFrame(req))
+	if err != nil {
+		return fail(errOut, err)
+	}
+	msg := fmt.Sprintf("burst for %s disabled", *account)
+	if req.Enabled {
+		msg = fmt.Sprintf("burst for %s enabled (ceiling %.2g, draw cap %d)", *account, *pct, *cap)
+	}
+	return ackResult(out, errOut, resp, msg)
+}
+
 // cmdSetWindow changes an account's time window. Accepts either --window <dur>
 // (sets [now, now+dur)) or explicit --start/--end (RFC3339 or epoch seconds).
 func cmdSetWindow(args []string, out, errOut io.Writer) int {

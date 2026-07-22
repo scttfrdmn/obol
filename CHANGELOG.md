@@ -8,6 +8,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `obol set-burst` changes burst on an existing account at runtime (#99):
+  `--ceiling-pct P [--draw-cap N]` enables/re-ceilings, `--disable` turns it off.
+  Backed by a new **logged** kernel transition `SetBurst` (like `SetRate`/
+  `SetWindow`), so the change is replayed in order and survives recovery — burst
+  config is no longer set-once-at-creation. Lowering the ceiling below the banked
+  pot clamps it; disabling zeroes the bucket; both forfeit only permission tokens
+  (burst is permission, not money — conservation untouched). Admin-gated. New
+  `SET_BURST` wire message. Closes #99 (with the create-time half in the prior
+  entry).
+
+### Added
 - `obol create` can enable burst on a runtime-created account (#99):
   `--burst-ceiling-pct` (turns burst on) and `--burst-draw-cap`, mirroring the
   `obold-config.json` fields. Set before the account's initial snapshot, so it

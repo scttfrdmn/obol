@@ -169,6 +169,8 @@ func (bd *Budget) applyCommand(c Command) error {
 		return bd.SetRate(c.C, c.Now)
 	case KindSetWindow:
 		return bd.SetWindow(c.TS, c.TE, c.Now)
+	case KindSetBurst:
+		return bd.SetBurst(c.BurstOn, c.BurstPct, c.Amount, c.Now)
 	default:
 		return fmt.Errorf("unknown command kind %q", c.Kind)
 	}

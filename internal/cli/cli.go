@@ -41,6 +41,8 @@ func Run(args []string, out, errOut io.Writer) int {
 		return cmdSetRate(rest, out, errOut)
 	case "set-window":
 		return cmdSetWindow(rest, out, errOut)
+	case "set-burst":
+		return cmdSetBurst(rest, out, errOut)
 	case "resolve":
 		return cmdResolve(rest, out, errOut)
 	case "simulate", "estimate":
@@ -120,6 +122,7 @@ Usage:
   obol dispatch --account A --time-limit S [--partition P] [--cpus N] [--gpus N]  burst headroom: dispatch or hold?
   obol set-rate   --account A --rate N   set an account's flat cost rate (admin)
   obol set-window --account A (--window D | --start T --end T)  set the window (admin)
+  obol set-burst  --account A (--ceiling-pct P [--draw-cap N] | --disable)  set burst (admin)
   obol ping                              health-check the daemon
 
 Global:

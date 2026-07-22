@@ -50,6 +50,8 @@ func TestRoundTrip(t *testing.T) {
 		{"log", LogFrame("lab_smith")},
 		{"set-rate", SetRateFrame("lab_smith", 5)},
 		{"set-window", SetWindowFrame("lab_smith", 100, 200)},
+		{"set-burst", SetBurstFrame(&SetBurstRequest{Account: "lab", Enabled: true, CeilingPct: 0.5, DrawCap: 2000})},
+		{"set-burst-off", SetBurstFrame(&SetBurstRequest{Account: "lab", Enabled: false})},
 		{"ack", &Frame{MsgKind: KindSetRate, AckResp: &AckResponse{OK: true}}},
 		{"resolve", ResolveFrame(&ResolveRequest{Account: "lab", Partition: "priced", TimeLimit: 100})},
 		{"simulate", SimulateFrame(&SimulateRequest{Account: "lab", TimeLimit: 100})},
@@ -162,6 +164,10 @@ func assertFrameEqual(t *testing.T, want, got *Frame) {
 		// CreateRequest has slice fields; compare with DeepEqual.
 		if got.Create == nil || !reflect.DeepEqual(*got.Create, *want.Create) {
 			t.Errorf("create: got %+v, want %+v", got.Create, want.Create)
+		}
+	case want.SetBurst != nil:
+		if got.SetBurst == nil || *got.SetBurst != *want.SetBurst {
+			t.Errorf("set_burst: got %+v, want %+v", got.SetBurst, want.SetBurst)
 		}
 	}
 }

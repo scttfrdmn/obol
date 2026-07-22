@@ -66,6 +66,8 @@ func commandKindName(k string) string {
 		return "set-rate"
 	case KindSetWindow:
 		return "set-window"
+	case KindSetBurst:
+		return "set-burst"
 	default:
 		return k
 	}

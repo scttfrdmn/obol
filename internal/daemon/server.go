@@ -173,6 +173,8 @@ func (s *Server) dispatch(req *wire.Frame, peer PeerCred) *wire.Frame {
 		return s.handleSetRate(req.SetRate, peer)
 	case wire.KindSetWindow:
 		return s.handleSetWindow(req.SetWindow, peer)
+	case wire.KindSetBurst:
+		return s.handleSetBurst(req.SetBurst, peer)
 	case wire.KindResolve:
 		return s.handleResolve(req.Resolve, peer)
 	case wire.KindSimulate:
@@ -938,6 +940,26 @@ func (s *Server) handleSetWindow(req *wire.SetWindowRequest, peer PeerCred) *wir
 		return ackReject(err.Error())
 	}
 	return &wire.Frame{MsgKind: wire.KindSetWindow, AckResp: &wire.AckResponse{OK: true}}
+}
+
+// handleSetBurst changes an account's burst config (#99). MUTATING verb → admin.
+// The kernel's logged SetBurst transition validates and applies it (enable/disable,
+// re-ceiling with clamp), so it survives recovery.
+func (s *Server) handleSetBurst(req *wire.SetBurstRequest, peer PeerCred) *wire.Frame {
+	if req == nil {
+		return ackReject("empty set-burst request")
+	}
+	if ok, reason := s.requireAdmin(peer); !ok {
+		return ackReject(reason)
+	}
+	bd, err := s.reg.Resolve(req.Account)
+	if err != nil {
+		return ackReject(err.Error())
+	}
+	if err := bd.SetBurst(req.Enabled, req.CeilingPct, req.DrawCap, s.now()); err != nil {
+		return ackReject(err.Error())
+	}
+	return &wire.Frame{MsgKind: wire.KindSetBurst, AckResp: &wire.AckResponse{OK: true}}
 }
 
 // handleResolve is a DRY RUN of the gate's decision for a submission: it reports
