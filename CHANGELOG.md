@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Project branding in `docs/assets/` (hero banner, logo, social-preview card,
+  sticker); README now leads with the hero banner and documents the assets.
+
 ## [0.14.0] - 2026-07-22
 
 Runtime burst administration (#99): burst is no longer set-once in the config
