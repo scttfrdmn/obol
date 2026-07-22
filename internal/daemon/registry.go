@@ -265,6 +265,24 @@ func (r *Registry) SweepUnbound(ttl, now budget.Seconds) int {
 	return swept
 }
 
+// SweepOrphans runs the started-orphan sweep (#97) across every account's budget
+// against the given set of live kernel keys (escrow tokens / array tokens),
+// returning the total reclaimed. Like SweepUnbound, it takes each budget's own
+// lock and holds the registry lock only to snapshot the budget set.
+func (r *Registry) SweepOrphans(liveKeys map[string]bool, policy budget.OrphanPolicy, now budget.Seconds) int {
+	r.mu.RLock()
+	bds := make([]*budget.Budget, 0, len(r.budgets))
+	for _, bd := range r.budgets {
+		bds = append(bds, bd)
+	}
+	r.mu.RUnlock()
+	swept := 0
+	for _, bd := range bds {
+		swept += bd.SweepOrphans(liveKeys, policy, now)
+	}
+	return swept
+}
+
 // Close closes every account's WAL (each Close flushes under group commit),
 // returning the first error encountered.
 func (r *Registry) Close() error {

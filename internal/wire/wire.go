@@ -61,6 +61,7 @@ const (
 	KindAttach    Kind = "attach"
 	KindTransfer  Kind = "transfer"
 	KindDispatch  Kind = "dispatch"
+	KindReconcile Kind = "reconcile"
 )
 
 // SettleKind names how a job ended, routing to the matching kernel transition.
@@ -372,6 +373,22 @@ type DispatchResponse struct {
 	Pot        int64  `json:"pot,omitempty"`     // projected burst pot
 }
 
+// ReconcileRequest carries the set of Slurm job ids currently live (from
+// `squeue`), so the daemon can reclaim STARTED escrows whose job vanished without
+// a completion event — the lost-completion / started-orphan class (#97). An admin
+// verb, run periodically by a sidecar. Never-started escrows are untouched (they
+// have no bound job id); those are the unbound-token janitor's job (#15).
+type ReconcileRequest struct {
+	LiveJobIDs []string `json:"live_job_ids"`
+}
+
+// ReconcileResponse reports how many orphaned escrows/tasks were reclaimed.
+type ReconcileResponse struct {
+	OK     bool   `json:"ok"`
+	Reason string `json:"reason,omitempty"`
+	Swept  int    `json:"swept"`
+}
+
 // LogRequest asks for the audit log (WAL render) of an account's budget.
 type LogRequest struct {
 	Account string `json:"account,omitempty"`
@@ -426,21 +443,23 @@ type Frame struct {
 	Attach    *AttachRequest    `json:"attach,omitempty"`
 	Transfer  *TransferRequest  `json:"transfer,omitempty"`
 	Dispatch  *DispatchRequest  `json:"dispatch,omitempty"`
+	Reconcile *ReconcileRequest `json:"reconcile,omitempty"`
 
 	// Responses (one populated per response frame).
-	GateResp     *GateResponse     `json:"gate_resp,omitempty"`
-	BindResp     *BindResponse     `json:"bind_resp,omitempty"`
-	SettleResp   *SettleResponse   `json:"settle_resp,omitempty"`
-	StatusResp   *StatusResponse   `json:"status_resp,omitempty"`
-	TopUpResp    *TopUpResponse    `json:"topup_resp,omitempty"`
-	ListResp     *ListResponse     `json:"list_resp,omitempty"`
-	LogResp      *LogResponse      `json:"log_resp,omitempty"`
-	AckResp      *AckResponse      `json:"ack_resp,omitempty"`
-	ResolveResp  *ResolveResponse  `json:"resolve_resp,omitempty"`
-	SimulateResp *SimulateResponse `json:"simulate_resp,omitempty"`
-	AttachResp   *AttachResponse   `json:"attach_resp,omitempty"`
-	TransferResp *TransferResponse `json:"transfer_resp,omitempty"`
-	DispatchResp *DispatchResponse `json:"dispatch_resp,omitempty"`
+	GateResp      *GateResponse      `json:"gate_resp,omitempty"`
+	BindResp      *BindResponse      `json:"bind_resp,omitempty"`
+	SettleResp    *SettleResponse    `json:"settle_resp,omitempty"`
+	StatusResp    *StatusResponse    `json:"status_resp,omitempty"`
+	TopUpResp     *TopUpResponse     `json:"topup_resp,omitempty"`
+	ListResp      *ListResponse      `json:"list_resp,omitempty"`
+	LogResp       *LogResponse       `json:"log_resp,omitempty"`
+	AckResp       *AckResponse       `json:"ack_resp,omitempty"`
+	ResolveResp   *ResolveResponse   `json:"resolve_resp,omitempty"`
+	SimulateResp  *SimulateResponse  `json:"simulate_resp,omitempty"`
+	AttachResp    *AttachResponse    `json:"attach_resp,omitempty"`
+	TransferResp  *TransferResponse  `json:"transfer_resp,omitempty"`
+	DispatchResp  *DispatchResponse  `json:"dispatch_resp,omitempty"`
+	ReconcileResp *ReconcileResponse `json:"reconcile_resp,omitempty"`
 }
 
 // Sentinel errors surfaced by decode. ErrVersion is distinguished so a caller
@@ -582,4 +601,9 @@ func TransferFrame(req *TransferRequest) *Frame {
 // DispatchFrame wraps a DispatchRequest in a request Frame.
 func DispatchFrame(req *DispatchRequest) *Frame {
 	return &Frame{MsgKind: KindDispatch, Dispatch: req}
+}
+
+// ReconcileFrame wraps a ReconcileRequest in a request Frame.
+func ReconcileFrame(req *ReconcileRequest) *Frame {
+	return &Frame{MsgKind: KindReconcile, Reconcile: req}
 }

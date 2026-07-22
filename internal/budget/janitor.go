@@ -93,10 +93,18 @@ func (bd *Budget) SweepUnbound(ttl Seconds, now Seconds) int {
 	return swept
 }
 
-// SweepOrphans settles every live escrow/array-task whose job ID is not present
-// in liveIDs. For arrays, liveIDs membership is checked per array ID (an array
-// is "live" if its array ID is in the set). Returns the count swept. `now` is
-// used for burst accounting on settlement.
+// SweepOrphans settles every STARTED escrow/array-task whose job ID is not
+// present in liveIDs — the lost-completion class (a job that ran, then vanished
+// from Slurm without a completion event) and the started-orphan-after-crash class
+// (a bound escrow whose daemon routing was lost on restart). For arrays, liveIDs
+// membership is checked per array ID. Returns the count swept; `now` is used for
+// burst accounting on settlement.
+//
+// It deliberately skips NEVER-STARTED (unbound) work: such an escrow has no bound
+// job id, so it can never be in a jobid-derived liveIDs set and would be wrongly
+// swept here — that submit→start orphan class belongs to SweepUnbound (#15), which
+// ages it out by TTL. Requiring Started keeps the two janitors from racing: this
+// one owns bound work, SweepUnbound owns unbound work.
 func (bd *Budget) SweepOrphans(liveIDs map[string]bool, policy OrphanPolicy, now Seconds) int {
 	// Collect orphan IDs first (can't mutate maps while ranging via settle).
 	bd.mu.Lock()
@@ -105,7 +113,7 @@ func (bd *Budget) SweepOrphans(liveIDs map[string]bool, policy OrphanPolicy, now
 		w  Seconds
 	}
 	for id, e := range bd.escrows {
-		if !liveIDs[id] {
+		if e.Started && !liveIDs[id] {
 			orphanJobs = append(orphanJobs, struct {
 				id string
 				w  Seconds
@@ -123,7 +131,7 @@ func (bd *Budget) SweepOrphans(liveIDs map[string]bool, policy OrphanPolicy, now
 			continue
 		}
 		for idx, ts := range ae.tasks {
-			if !ts.settled {
+			if ts.started && !ts.settled {
 				orphanTasks = append(orphanTasks, taskRef{aid, idx, ae.W})
 			}
 		}

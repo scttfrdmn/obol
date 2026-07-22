@@ -185,6 +185,8 @@ func (s *Server) dispatch(req *wire.Frame, peer PeerCred) *wire.Frame {
 		return s.handleTransfer(req.Transfer, peer)
 	case wire.KindDispatch:
 		return s.handleDispatch(req.Dispatch, peer)
+	case wire.KindReconcile:
+		return s.handleReconcile(req.Reconcile, peer)
 	case wire.KindPing:
 		return wire.PingFrame() // echo: liveness only
 	default:
@@ -719,6 +721,42 @@ func (s *Server) settleMultiSourceArrayTask(req *wire.SettleRequest, master stri
 	return &wire.Frame{MsgKind: wire.KindSettle, SettleResp: &wire.SettleResponse{OK: true}}
 }
 
+// handleReconcile reclaims STARTED escrows whose Slurm job vanished without a
+// completion event (#97). MUTATING verb → admin. The request carries the live
+// Slurm job-id set (from `squeue`); the daemon translates it into the set of live
+// KERNEL keys (escrow tokens) via its jobToToken/tokenLegs routing, then runs
+// SweepOrphans per budget with a FULL-REFUND policy — a job that dropped off the
+// scheduler is not billed its whole walltime blindly; the unused reservation
+// returns. (Never-started escrows are skipped by SweepOrphans and reclaimed by the
+// unbound-token janitor instead, so the two don't race.)
+func (s *Server) handleReconcile(req *wire.ReconcileRequest, peer PeerCred) *wire.Frame {
+	if req == nil {
+		return reconcileReject("empty reconcile request")
+	}
+	if ok, reason := s.requireAdmin(peer); !ok {
+		return reconcileReject(reason)
+	}
+	// Translate live Slurm job ids → live kernel keys. jobToToken maps each bound
+	// Slurm job id to its token (1:1/array) or master token (multi-source); a
+	// master token expands to its leg tokens (the actual per-budget escrow keys).
+	live := make(map[string]bool, len(req.LiveJobIDs))
+	s.mu.Lock()
+	for _, jid := range req.LiveJobIDs {
+		tok, ok := s.jobToToken[jid]
+		if !ok {
+			continue // not (yet) bound here — unbound work is SweepUnbound's job
+		}
+		live[tok] = true
+		for _, l := range s.tokenLegs[tok] { // multi-source: keep every leg live
+			live[l.token] = true
+		}
+	}
+	s.mu.Unlock()
+
+	swept := s.reg.SweepOrphans(live, budget.OrphanRefundFull, s.now())
+	return &wire.Frame{MsgKind: wire.KindReconcile, ReconcileResp: &wire.ReconcileResponse{OK: true, Swept: swept}}
+}
+
 // handleStatus returns a consistent snapshot of an account's budget for
 // `obol show`. When the request names an account, that budget is used; when it
 // doesn't, the sole account is used if exactly one is configured, else an error
@@ -1150,4 +1188,8 @@ func transferReject(reason string) *wire.Frame {
 
 func dispatchReject(reason string) *wire.Frame {
 	return &wire.Frame{MsgKind: wire.KindDispatch, DispatchResp: &wire.DispatchResponse{OK: false, Reason: reason}}
+}
+
+func reconcileReject(reason string) *wire.Frame {
+	return &wire.Frame{MsgKind: wire.KindReconcile, ReconcileResp: &wire.ReconcileResponse{OK: false, Reason: reason}}
 }
