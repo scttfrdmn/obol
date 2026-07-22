@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/assets/obol-hero.png" alt="obol — fund the work before it runs. Monetary budget enforcement for Slurm." width="100%">
+</p>
+
 # obol
 
 [![CI](https://github.com/scttfrdmn/obol/actions/workflows/ci.yml/badge.svg)](https://github.com/scttfrdmn/obol/actions/workflows/ci.yml)
@@ -59,6 +63,24 @@ The kernel holds these exactly, and they must never regress (see `CLAUDE.md`):
 
 GitHub is the source of truth for planning (issues/milestones/labels). PRs only; `main` is
 protected. See [`CONTRIBUTING.md`](CONTRIBUTING.md).
+
+## Branding
+
+Project artwork lives in [`docs/assets/`](docs/assets/) — the obol mascot is an
+owl-faced ancient coin (the owl for the Athenian obol; the ledger for the books it
+keeps) minding the **OBOL GATE** that every job passes through:
+
+| Asset | Use |
+|-------|-----|
+| `obol-hero.png` | wide banner (the README header above) |
+| `obol-logo.png` | square logo + tagline |
+| `obol-open-graph.png` | social preview card (see below) |
+| `obol-sticker.png` | die-cut sticker, transparent background (swag) |
+
+`obol-open-graph.png` is the GitHub **social preview** (the card shown when the
+repo is linked on GitHub/Slack/X). GitHub can't pick it up from the repo tree — it
+must be uploaded once as a repo setting: **Settings → General → Social preview →
+Edit → Upload an image**, then choose `docs/assets/obol-open-graph.png`.
 
 ## License
 
