@@ -7,32 +7,104 @@
 [![CI](https://github.com/scttfrdmn/obol/actions/workflows/ci.yml/badge.svg)](https://github.com/scttfrdmn/obol/actions/workflows/ci.yml)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 
-Hierarchical, monetary budget enforcement for [Slurm](https://slurm.schedmd.com/).
+**Obol gives Slurm administrators hard, money-denominated budgets for users, projects, and
+accounts.** It reserves a job's estimated cost *at submission*, rejects jobs that can't be
+funded, charges actual runtime when they finish, and refunds the unused reservation.
+
+The point is the **gate at submit time**, not a report after the fact. Slurm's own accounting
+(associations, QOS, fair-share, `sacct`, `TRESBillingWeights`) can *measure* and *rank* usage,
+and cap it in service-unit terms — but it tells you what a job cost *after* the compute is
+gone. Obol answers a different question *before* the job runs: **can this account afford it?**
+On a cloud-backed or chargeback cluster, where compute is real money, that's the question that
+matters. Obol runs alongside slurmdbd (it reuses Slurm's account tree; it does not replace
+accounting) and enforces spend at the one place spend can still be prevented.
+
+A worked example: a lab is funded **$10,000**. Alice submits a 4-node job estimated at **$320**.
+Obol reserves $320 (available now $9,680) and admits it. The job finishes early, costing
+**$241.60** — Obol books that and refunds **$78.40**. A job that would overrun the balance is
+rejected at `sbatch` with a message, and never schedules.
 
 Named for the [obol](https://en.wikipedia.org/wiki/Obol_(coin)), an ancient small-denomination coin.
 
-Users and groups (Slurm accounts) map to budgets denominated in **money**, independent of
-Slurm's service units. The enforcement point is job submission: a job that cannot be funded
-does not schedule. Budgets optionally carry a time window with banked-burst mechanics — idle
-time banks burst permission; concurrency spends it.
+## Maturity & compatibility
 
-## Status
+Pre-1.0 and released continuously (latest **v0.14.0**; see [`CHANGELOG.md`](CHANGELOG.md)). The
+money kernel, daemon, wire protocol, and full CLI are built and tested; the Slurm seam is
+validated end to end in a containerized single-node Slurm tier across all three target
+generations.
 
-| Component | State |
-|-----------|-------|
-| `internal/budget` — the kernel | **built & tested** (conservation + concurrency proven under `-race`, crash-safe WAL durability) |
-| `cmd/obold` — the sidecar daemon | **built & tested** — serves GATE/BIND/SETTLE/STATUS over a Unix socket |
-| `cmd/obol` — the management CLI | **built & tested** — `show`/`gate`/`bind`/`settle`/`ping` over the socket |
-| Lua `job_submit` shim + `site_factor` plugin | designed (`docs/SEAM_DESIGN.md`); validation on burstlab clusters pending |
+| Piece | State |
+|-------|-------|
+| `internal/budget` — money kernel | **built & tested**: exact-integer conservation + concurrency under `-race`, crash-safe WAL + snapshot recovery |
+| `obold` — sidecar daemon | **built & tested**: GATE/BIND/SETTLE, multi-account, burst dispatch, transfers, reconciliation, orphan janitors |
+| `obol` — admin/diagnostic CLI | **built & tested**: 19 verbs — `show` `list` `log` `gate` `bind` `settle` `create` `attach`/`detach` `topup` `transfer` `set-rate` `set-window` `set-burst` `resolve` `simulate` `dispatch` `reconcile` `ping` |
+| Slurm seam — `job_submit.lua` + prolog/jobcomp | **built & validated in Docker** on Slurm **22.05 / 23.11 / 24.05** (Rocky 8/9/10), from source ([`docs/INTEGRATION.md`](docs/INTEGRATION.md)) |
+| `site_factor` burst-dispatch plugin | **reference C source** (`seam/plugin/`); the decision is daemon-side and tested, the plugin isn't yet CI-built |
+| Production hardening | maturing — see the operator-guide gaps in the [docs backlog](https://github.com/scttfrdmn/obol/issues) |
 
-The architecture — why a sidecar daemon, the three-tier latency model, the `admin_comment`
-correlation token, the owned-vs-rented partition policy axis — is documented in
+**Compatibility (pre-1.0):** minor versions may break the wire protocol and on-disk state
+format; patch versions are fixes. Slurm targets are 22.05 / 23.11 / 24.05. Not yet
+recommended for unattended production without an operator familiar with the [seam
+design](docs/SEAM_DESIGN.md). The architecture — sidecar daemon, three-tier latency model, the
+`admin_comment` correlation token, owned-vs-rented partition policy — is in
 [`docs/SEAM_DESIGN.md`](docs/SEAM_DESIGN.md).
 
-## Try it
+## Quickstart
+
+Obol is a sidecar daemon (`obold`) plus a Slurm `job_submit` shim that calls it. A minimal
+multi-account deployment:
+
+**1. Build (or grab a release binary from the [releases page](https://github.com/scttfrdmn/obol/releases)).**
 
 ```
-make build                              # -> bin/obold, bin/obol
+make build     # -> bin/obold, bin/obol
+```
+
+**2. Write a config** (`obold.json`) — accounts with money balances, a cost rate, and a window:
+
+```json
+{
+  "accounts": [
+    {"name": "lab_smith", "balance": 100000, "rate": 1, "window": "720h"},
+    {"name": "lab_jones", "balance": 50000,  "rate": 1, "window": "720h"}
+  ]
+}
+```
+
+`rate` is money per second of walltime (or set per-node/TRES pricing — see the config docs).
+
+**3. Start the daemon:**
+
+```
+bin/obold -socket /run/obol/obold.sock -state-dir /var/lib/obol -config obold.json
+```
+
+**4. Install the shim** so slurmctld calls Obol at submit. In `slurm.conf`:
+
+```
+JobSubmitPlugins=lua      # with seam/lua/job_submit.lua installed in the plugin dir
+Prolog=/usr/local/bin/obol-prolog.sh
+JobCompType=jobcomp/script
+JobCompLoc=/usr/local/bin/obol-jobcomp.sh
+```
+
+See [`docs/INTEGRATION.md`](docs/INTEGRATION.md) and [`seam/README.md`](seam/README.md) for the
+exact install (the containerized tier in `test/docker/` is a complete working example).
+
+**5. Submit — funded runs, unfunded is rejected at `sbatch`:**
+
+```
+sbatch --account=lab_smith --time=60 job.sh     # reserved at submit; settled + refunded on exit
+bin/obol --socket /run/obol/obold.sock show --account lab_smith   # balance, reserved, burn rate
+```
+
+<details>
+<summary>Developer demo: drive the money lifecycle without Slurm</summary>
+
+The gate/bind/settle primitives the shim uses can be exercised directly against the daemon —
+useful for testing the wire protocol, not how an operator uses Obol:
+
+```
 bin/obold -socket /tmp/obold.sock -state-dir /tmp/obol -create -balance 5000 -rate 1 &
 bin/obol --socket /tmp/obold.sock show
 tok=$(bin/obol --socket /tmp/obold.sock gate --account lab --partition cloud --time-limit 1000)
@@ -40,6 +112,7 @@ bin/obol --socket /tmp/obold.sock bind   --token "${tok#allow }" --jobid 42
 bin/obol --socket /tmp/obold.sock settle --jobid 42 --kind complete --runtime 300
 bin/obol --socket /tmp/obold.sock show   # balance debited by the 300s consumed, tail refunded
 ```
+</details>
 
 ## Build
 
