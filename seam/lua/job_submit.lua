@@ -80,6 +80,42 @@ local function gate_decision(account, partition, uid, time_limit, ntasks, tres)
   return true, frame.gate_resp
 end
 
+-- array_task_count parses a Slurm array spec string (job_desc.array_inx) into a
+-- task count. Handles ranges ("0-9"), a %throttle suffix ("0-9%4" -> the %4 is a
+-- concurrency limit, NOT a task count, so it's stripped), step ranges ("0-9:2"),
+-- and comma lists ("1,3,5" / "0-3,7,10-12"). Returns 1 for nil/empty/unparseable
+-- (fail-safe: a single escrow, never a mis-sized array). The count is what the
+-- gate escrows N*c*w against.
+local function array_task_count(spec)
+  if type(spec) ~= "string" or spec == "" then return 1 end
+  -- Drop the %throttle (concurrency cap), which doesn't change task count.
+  spec = spec:gsub("%%%d+", "")
+  local count = 0
+  for piece in spec:gmatch("[^,]+") do
+    local lo, hi, step = piece:match("^(%d+)%-(%d+):(%d+)$")
+    if lo then
+      lo, hi, step = tonumber(lo), tonumber(hi), tonumber(step)
+      if lo and hi and step and step > 0 and hi >= lo then
+        count = count + math.floor((hi - lo) / step) + 1
+      end
+    else
+      lo, hi = piece:match("^(%d+)%-(%d+)$")
+      if lo then
+        lo, hi = tonumber(lo), tonumber(hi)
+        if lo and hi and hi >= lo then count = count + (hi - lo) + 1 end
+      elseif piece:match("^%d+$") then
+        count = count + 1
+      end
+    end
+  end
+  if count < 1 then return 1 end
+  return count
+end
+
+-- Exposed as a global for unit testing (Slurm only calls the slurm_job_* globals;
+-- an extra global is harmless to the plugin ABI). Tests load this file and call it.
+obol_array_task_count = array_task_count
+
 -- slurm_job_submit is the plugin entry point. job_desc is the mutable submission
 -- record; part_list and submit_uid are provided by Slurm. Returns a Slurm rc.
 function slurm_job_submit(job_desc, part_list, submit_uid)
@@ -93,7 +129,13 @@ function slurm_job_submit(job_desc, part_list, submit_uid)
   if time_limit > 0 and time_limit < 0xFFFFFFFF then
     tl_seconds = math.floor(time_limit * 60)
   end
-  local ntasks = 1
+  -- Job arrays (#103): slurm_job_submit fires ONCE for the whole array, and the
+  -- array spec is job_desc.array_inx (verified on 22.05/23.11/24.05) — a string
+  -- like "0-9", "0-9%4" (a %throttle), or a list "1,3,5". Count the tasks so the
+  -- gate escrows the whole array (NTasks>1 -> SubmitArray). A non-array job leaves
+  -- array_inx nil -> ntasks 1 (unchanged). Anything unparseable falls back to 1
+  -- (fail-safe to a single escrow rather than mis-sizing the array).
+  local ntasks = array_task_count(job_desc.array_inx)
 
   -- TRES the job requested, for weighted cost (SEAM_DESIGN §5; wire TRES fields).
   -- Slurm exposes these as job_desc numbers; coerce to integers, default 0.

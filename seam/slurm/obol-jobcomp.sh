@@ -39,6 +39,21 @@ if [[ -z "$JOBID" ]]; then
   exit 0
 fi
 
+# Array tasks (#103): jobcomp fires once PER TASK, with ARRAYTASKID (the index)
+# and ARRAYJOBID (the array master) in the environment (verified on 22.05/23.11/
+# 24.05). JOBID is the individual task's id, which the prolog already mapped to
+# the shared array token at bind — so we settle by that JOBID plus --idx.
+#
+# For a NON-array job, Slurm still sets ARRAYTASKID, but to the NO_VAL sentinel
+# (4294967294 = 0xFFFFFFFE) rather than leaving it unset — so a bare -n test would
+# wrongly treat every 1:1 job as array task 4294967294. Accept only a real index:
+# a small non-negative integer below the sentinel range.
+idx_arg=()
+atid="${ARRAYTASKID:-}"
+if [[ "$atid" =~ ^[0-9]+$ ]] && (( atid < 4000000000 )); then
+  idx_arg=(--idx "$atid")
+fi
+
 # ELAPSED may be seconds (integer) or HH:MM:SS / D-HH:MM:SS. Normalize to seconds.
 elapsed_raw="${ELAPSED:-0}"
 elapsed=0
@@ -62,13 +77,13 @@ esac
 
 case "$kind" in
   complete)
-    "$OBOL" --socket "$SOCKET" settle --jobid "$JOBID" --kind complete --runtime "$elapsed" --if-present ;;
+    "$OBOL" --socket "$SOCKET" settle --jobid "$JOBID" --kind complete --runtime "$elapsed" "${idx_arg[@]}" --if-present ;;
   timeout)
-    "$OBOL" --socket "$SOCKET" settle --jobid "$JOBID" --kind timeout --if-present ;;
+    "$OBOL" --socket "$SOCKET" settle --jobid "$JOBID" --kind timeout "${idx_arg[@]}" --if-present ;;
   cancel)
-    "$OBOL" --socket "$SOCKET" settle --jobid "$JOBID" --kind cancel --elapsed "$elapsed" --if-present ;;
+    "$OBOL" --socket "$SOCKET" settle --jobid "$JOBID" --kind cancel --elapsed "$elapsed" "${idx_arg[@]}" --if-present ;;
   infrafail)
-    "$OBOL" --socket "$SOCKET" settle --jobid "$JOBID" --kind infrafail --elapsed "$elapsed" --if-present ;;
+    "$OBOL" --socket "$SOCKET" settle --jobid "$JOBID" --kind infrafail --elapsed "$elapsed" "${idx_arg[@]}" --if-present ;;
 esac
 
 # Never fail the completion hook on a settle error (already-settled, or daemon

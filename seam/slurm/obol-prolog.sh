@@ -56,9 +56,22 @@ if [[ -z "$node_type" ]] && command -v scontrol >/dev/null 2>&1; then
   fi
 fi
 
+# Array tasks (#103): the prolog env gives only SLURM_JOB_ID (the per-task id),
+# NOT the array context — but `scontrol show job` on that id exposes ArrayTaskId
+# (and the shared AdminComment token). When this job is an array task, bind its
+# index so the daemon starts that task's slice of the array escrow. The token was
+# stamped once for the whole array, so all tasks bind against the same token.
+idx_arg=()
+if command -v scontrol >/dev/null 2>&1; then
+  atid=$(scontrol show job "$JOBID" 2>/dev/null | grep -oE 'ArrayTaskId=[0-9]+' | head -1 | cut -d= -f2)
+  if [[ -n "$atid" ]]; then
+    idx_arg=(--idx "$atid")
+  fi
+fi
+
 if [[ -n "$node_type" ]]; then
-  "$OBOL" --socket "$SOCKET" bind --token "$token" --jobid "$JOBID" --node-type "$node_type" || true
+  "$OBOL" --socket "$SOCKET" bind --token "$token" --jobid "$JOBID" --node-type "$node_type" "${idx_arg[@]}" || true
 else
-  "$OBOL" --socket "$SOCKET" bind --token "$token" --jobid "$JOBID" || true
+  "$OBOL" --socket "$SOCKET" bind --token "$token" --jobid "$JOBID" "${idx_arg[@]}" || true
 fi
 exit 0

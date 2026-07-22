@@ -189,6 +189,56 @@ func TestFundedJobLifecycle(t *testing.T) {
 	}
 }
 
+// TestArrayJobLifecycle drives a real job array end to end (#103): the shim reads
+// --array and gates all N tasks (one escrow of N*c*w), the prolog binds each task
+// by its ArrayTaskId, and jobcomp settles each task's slice. Conservation holds
+// and the escrow fully clears once every task settles.
+func TestArrayJobLifecycle(t *testing.T) {
+	before := showBalance(t, "lab")
+
+	// --array=0-3 (4 tasks), 1-minute walltime, rate 1 => each task 60, whole
+	// array 240 escrowed at gate.
+	out := dexec(t, `sbatch --parsable --array=0-3 --account=lab --partition=cloud --time=1 --wrap="sleep 2"`)
+	arrayID := strings.TrimSpace(lastLine(out))
+	if arrayID == "" {
+		t.Fatalf("sbatch --array returned no id: %s", out)
+	}
+
+	// After submit the whole array is escrowed: 4 * 60 = 240.
+	afterSubmit := showBalance(t, "lab")
+	if afterSubmit != before-240 {
+		t.Errorf("after array submit balance = %d, want %d (4 tasks * 60)", afterSubmit, before-240)
+	}
+
+	// Wait for all array tasks to leave the queue, then let jobcomp settle each.
+	for i := 0; i < 60; i++ {
+		q := dexec(t, `squeue -h -r -A lab 2>/dev/null || true`)
+		if strings.TrimSpace(q) == "" {
+			break
+		}
+		time.Sleep(time.Second)
+	}
+	time.Sleep(4 * time.Second) // per-task jobcomp settles
+
+	// Each task ran ~2s of its 60s, so nearly all of the 240 is refunded; the
+	// balance returns close to `before`, and no escrow remains.
+	afterSettle := showBalance(t, "lab")
+	if afterSettle <= afterSubmit {
+		t.Errorf("after array settle balance = %d, expected refund above %d", afterSettle, afterSubmit)
+	}
+	if afterSettle > before {
+		t.Errorf("after array settle balance = %d exceeds original %d (over-refund)", afterSettle, before)
+	}
+	show := showAccount(t, "lab")
+	if !strings.Contains(show, "Conservation:  OK") {
+		t.Errorf("conservation not OK after array:\n%s", show)
+	}
+	// Every task settled → no live arrays.
+	if !strings.Contains(show, "0 arrays") {
+		t.Errorf("array not fully settled (live arrays remain):\n%s", show)
+	}
+}
+
 // TestUnfundedJobRejected: a job whose cost exceeds the balance is rejected at
 // submit by the gate, and nothing is escrowed.
 func TestUnfundedJobRejected(t *testing.T) {
