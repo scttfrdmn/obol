@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-07-22
+
+Runtime burst administration (#99): burst is no longer set-once in the config
+file. Minor bump — additive `SET_BURST` wire message + burst fields on `create`;
+a new **logged** kernel transition (`SetBurst`) so live burst changes replay in
+order and survive recovery. Burst is permission, not money, so none of this
+touches conservation.
+
 ### Added
 - `obol set-burst` changes burst on an existing account at runtime (#99):
   `--ceiling-pct P [--draw-cap N]` enables/re-ceilings, `--disable` turns it off.
@@ -15,15 +23,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   config is no longer set-once-at-creation. Lowering the ceiling below the banked
   pot clamps it; disabling zeroes the bucket; both forfeit only permission tokens
   (burst is permission, not money — conservation untouched). Admin-gated. New
-  `SET_BURST` wire message. Closes #99 (with the create-time half in the prior
-  entry).
-
-### Added
+  `SET_BURST` wire message.
 - `obol create` can enable burst on a runtime-created account (#99):
   `--burst-ceiling-pct` (turns burst on) and `--burst-draw-cap`, mirroring the
   `obold-config.json` fields. Set before the account's initial snapshot, so it
-  survives a restart exactly like a config-created burst account. (Changing burst
-  on an *existing* account — a logged transition — is the next change.)
+  survives a restart exactly like a config-created burst account.
 
 ## [0.13.0] - 2026-07-22
 
@@ -510,7 +514,8 @@ lock-cheap read path (#7), and config durability (#8).
 - Seam design document (`docs/SEAM_DESIGN.md`) describing the Slurm attachment.
 - Project scaffold: CI (race + lint + coverage), release pipeline, governance.
 
-[Unreleased]: https://github.com/scttfrdmn/obol/compare/v0.13.0...HEAD
+[Unreleased]: https://github.com/scttfrdmn/obol/compare/v0.14.0...HEAD
+[0.14.0]: https://github.com/scttfrdmn/obol/compare/v0.13.0...v0.14.0
 [0.13.0]: https://github.com/scttfrdmn/obol/compare/v0.12.1...v0.13.0
 [0.12.1]: https://github.com/scttfrdmn/obol/compare/v0.12.0...v0.12.1
 [0.12.0]: https://github.com/scttfrdmn/obol/compare/v0.11.0...v0.12.0
