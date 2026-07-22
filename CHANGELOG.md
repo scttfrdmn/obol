@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Multi-source funding now supports job arrays (#96): an `sbatch --array` funded
+  by multiple sources is split by **whole tasks** in ordered fallback — source 1
+  funds the first `floor(B/(rate·walltime))` task indices, the next source the
+  overflow, each leg an ordinary array escrow over a contiguous index range.
+  All-or-nothing: rejected unless the sources jointly fund all N tasks. Per-task
+  bind/settle routes to the one leg owning that index; each budget conserves on
+  its own. Completes the multi-source feature (1:1 jobs shipped in 0.10.0).
+
 ## [0.11.0] - 2026-07-21
 
 Job arrays end to end. An `sbatch --array` submission is now budget-enforced

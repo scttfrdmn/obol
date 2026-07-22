@@ -337,9 +337,18 @@ completion refunds the tail sources while billing the head ones. `InfraFail` app
 own `BillInfraFailures` policy to its slice, so mixed cloud/on-prem sources bill-vs-write-off
 correctly. Crash safety needs **no journal**: a partially-placed gate's legs are unstarted escrows
 reclaimed per-budget by the `SweepUnbound` janitor (§13.2) — the roll-back bias, unlike transfer's
-complete-forward. **Scope:** 1:1 jobs; job arrays remain single-source (follow-up). The shim
-convention for where a user writes the ordered source list is a documented follow-up; the daemon
-owns all split policy.
+complete-forward. The shim convention for where a user writes the ordered source list is a
+documented follow-up; the daemon owns all split policy.
+
+**Job arrays split by WHOLE TASKS (#96).** A multi-source array funds in units of one task's cost
+(`c·w`): source 1 funds the first `k₁` task indices, source 2 the next `k₂`, … with `kᵢ =
+floor(Bᵢ/(c·w))` capped by the remaining count. Each leg is an ordinary single-budget ARRAY escrow
+over a contiguous global task-index range, so the kernel is unchanged and each budget conserves on
+its own. All-or-nothing: reject if `Σ floor(Bᵢ/(c·w)) < N`. Unlike the 1:1 time-slice legs (which
+fan every BIND/SETTLE across all legs), array BIND/SETTLE for a given task route to the ONE leg
+whose range owns that index, settling that leg's task at its local index; the master routing drops
+when the last task across all legs settles. (Slice-each-task — every source funding part of every
+task's walltime — was considered and rejected as far heavier for no real gain.)
 
 ---
 
