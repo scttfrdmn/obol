@@ -49,14 +49,24 @@ type Server struct {
 	tokenArrayN map[string]int            // array token -> tasks not yet settled (#103)
 }
 
-// leg is one funded slice of a multi-source job (#54): an ordinary single-budget
-// escrow in budget bd under legToken, funding w seconds of the job at the job's
-// rate. The daemon fans BIND/SETTLE out across a master token's legs; each leg
-// settles independently so each budget conserves on its own.
+// leg is one funded portion of a multi-source job. Two shapes share this type:
+//
+//   - 1:1 job (#54): a time-slice leg — an ordinary single-budget escrow funding
+//     w seconds of the one job. nTasks == 0. BIND/SETTLE fan out across all legs,
+//     each with its runtime slice apportioned by prefix.
+//   - Job array (#96): a task-range leg — an ordinary single-budget ARRAY escrow
+//     funding nTasks whole tasks, the global task indices [firstTask,
+//     firstTask+nTasks). BIND/SETTLE for a given task route to the ONE leg whose
+//     range owns that index (no fan-out).
+//
+// Either way each leg is an ordinary single-budget escrow, so each budget
+// conserves on its own; no cross-budget invariant is introduced.
 type leg struct {
-	bd    *budget.Budget
-	token string
-	w     budget.Seconds // whole seconds this leg funds (for settle apportionment)
+	bd        *budget.Budget
+	token     string
+	w         budget.Seconds // funded walltime (time-slice legs: this leg's seconds; array legs: the per-task walltime)
+	firstTask int            // array leg: global index of this leg's first task
+	nTasks    int            // array leg: tasks this leg owns (>0 marks an array leg; 0 = time-slice leg)
 }
 
 // New builds a Server over a single budget (back-compat: wraps it in a
@@ -250,45 +260,16 @@ func (s *Server) handleGate(req *wire.GateRequest) *wire.Frame {
 // no job is left partially funded. Legs are placed one kernel lock at a time (the
 // transfer discipline) — no two budget locks are ever held together.
 func (s *Server) handleGateMultiSource(req *wire.GateRequest) *wire.Frame {
+	// Resolve + authorize every source and pin the uniform job rate. Shared by the
+	// 1:1 and array paths.
+	bds, c, errFrame := s.resolveSources(req)
+	if errFrame != nil {
+		return errFrame
+	}
 	if req.NTasks > 1 {
-		return gateReject("multi-source funding does not support job arrays yet")
+		return s.handleGateMultiSourceArray(req, bds, c)
 	}
-	// The job's rate must be flat here: node-type worst-case pricing reprices per
-	// escrow at BIND, which is well-defined per leg, but TRES/node rate resolution
-	// is unchanged. Resolve the rate exactly as the single-source path does.
-	c := s.nodeCost.worstRate(req.Partition)
-	if c == 0 {
-		c = s.weights.Rate(req.TRES)
-	}
-
-	// Resolve every source and authorize the submitter for each, before touching
-	// any money. Snapshot each source's rate-effective balance for the plan.
-	bds := make([]*budget.Budget, len(req.Sources))
-	balances := make([]budget.Units, len(req.Sources))
-	for i, acct := range req.Sources {
-		bd, err := s.reg.Resolve(acct)
-		if err != nil {
-			return gateReject(fmt.Sprintf("source %q: %s", acct, err.Error()))
-		}
-		if ok, reason := s.authorize(acct, req.UID); !ok {
-			return gateReject(fmt.Sprintf("source %q: %s", acct, reason))
-		}
-		bds[i] = bd
-		// The kernel uses the budget's own flat rate when c == 0; for the plan we
-		// need the concrete per-second rate this leg will bill. Resolve it per
-		// budget so the plan's floor(B/rate) math matches what SubmitAt will escrow.
-		rate := c
-		if rate == 0 {
-			rate = bd.Report(s.now()).C
-		}
-		// All legs share one job rate; if sources have differing flat rates and no
-		// node/TRES rate is set, that is a misconfiguration for a multi-source job.
-		if i == 0 {
-			c = rate
-		} else if rate != c {
-			return gateReject("multi-source requires a uniform rate across sources (set node-type or TRES pricing, or equal account rates)")
-		}
-	}
+	balances := make([]budget.Units, len(bds))
 	for i, bd := range bds {
 		balances[i] = bd.Balance()
 	}
@@ -323,6 +304,109 @@ func (s *Server) handleGateMultiSource(req *wire.GateRequest) *wire.Frame {
 	s.tokenLegs[master] = placed
 	s.mu.Unlock()
 	return &wire.Frame{MsgKind: wire.KindGate, GateResp: &wire.GateResponse{Allow: true, Token: master}}
+}
+
+// resolveSources resolves and authorizes every source account and pins the single
+// job rate c shared by all legs (node-type worst-case / TRES / flat, resolved like
+// the single-source gate). It rejects (returning a non-nil frame) on an unresolved
+// or unauthorized source, or if the sources' flat rates disagree with no node/TRES
+// rate set — a multi-source job must bill every leg at one rate.
+func (s *Server) resolveSources(req *wire.GateRequest) (bds []*budget.Budget, c budget.Units, reject *wire.Frame) {
+	c = s.nodeCost.worstRate(req.Partition)
+	if c == 0 {
+		c = s.weights.Rate(req.TRES)
+	}
+	bds = make([]*budget.Budget, len(req.Sources))
+	for i, acct := range req.Sources {
+		bd, err := s.reg.Resolve(acct)
+		if err != nil {
+			return nil, 0, gateReject(fmt.Sprintf("source %q: %s", acct, err.Error()))
+		}
+		if ok, reason := s.authorize(acct, req.UID); !ok {
+			return nil, 0, gateReject(fmt.Sprintf("source %q: %s", acct, reason))
+		}
+		bds[i] = bd
+		rate := c
+		if rate == 0 {
+			rate = bd.Report(s.now()).C
+		}
+		if i == 0 {
+			c = rate
+		} else if rate != c {
+			return nil, 0, gateReject("multi-source requires a uniform rate across sources (set node-type or TRES pricing, or equal account rates)")
+		}
+	}
+	return bds, c, nil
+}
+
+// handleGateMultiSourceArray is the ordered-fallback gate for a job ARRAY funded
+// by several accounts (#96). The split is WHOLE TASKS: source 1 funds the first k1
+// task indices, source 2 the next k2, etc., where kᵢ = floor(Bᵢ/(c·w)) capped by
+// the remaining task count. Each leg is an ordinary single-budget ARRAY escrow
+// over a contiguous global task-index range, so the kernel is unchanged and each
+// budget conserves on its own. All-or-nothing: reject if the sources jointly can't
+// fund all N tasks; roll back any placed leg on a mid-place failure.
+func (s *Server) handleGateMultiSourceArray(req *wire.GateRequest, bds []*budget.Budget, c budget.Units) *wire.Frame {
+	// Reuse the funding-plan math with the unit = one task's cost (c·w) and the
+	// need = N tasks: fundingPlan's "whole seconds a source can fund" becomes
+	// "whole TASKS a source can fund", floor(Bᵢ/(c·w)).
+	taskCost := c * req.TimeLimit
+	if taskCost <= 0 {
+		return gateReject("array gate requires a positive rate and time limit")
+	}
+	balances := make([]budget.Units, len(bds))
+	for i, bd := range bds {
+		balances[i] = bd.Balance()
+	}
+	// fundingPlan(balances, unitCost, needUnits): each legPlan.W is the count of
+	// units (tasks) that source funds; fundable iff Σ floor(Bᵢ/unitCost) ≥ need.
+	taskLegs, fundable := fundingPlan(balances, taskCost, budget.Seconds(req.NTasks))
+	if !fundable {
+		return gateReject("insufficient budget across sources for the whole array")
+	}
+
+	master, err := mintToken()
+	if err != nil {
+		return gateReject("token mint failed")
+	}
+	now := s.now()
+
+	// Place one array escrow per source over its contiguous task-index range.
+	placed := make([]leg, 0, len(taskLegs))
+	firstTask := 0
+	for _, tl := range taskLegs {
+		bd := bds[tl.Index]
+		n := int(tl.W) // tasks this source funds
+		legTok := fmt.Sprintf("%s:%d", master, tl.Index)
+		if err := bd.SubmitArrayAt(legTok, c, n, req.TimeLimit, now); err != nil {
+			for _, pl := range placed { // roll back placed legs: cancel every task
+				for i := 0; i < pl.nTasks; i++ {
+					_ = pl.bd.CancelTask(pl.token, i, 0, now)
+				}
+			}
+			return gateReject(fmt.Sprintf("source %q: %s", req.Sources[tl.Index], err.Error()))
+		}
+		placed = append(placed, leg{bd: bd, token: legTok, w: req.TimeLimit, firstTask: firstTask, nTasks: n})
+		firstTask += n
+	}
+
+	s.mu.Lock()
+	s.tokenLegs[master] = placed
+	s.tokenArrayN[master] = req.NTasks // drop routing when the last task settles
+	s.mu.Unlock()
+	return &wire.Frame{MsgKind: wire.KindGate, GateResp: &wire.GateResponse{Allow: true, Token: master}}
+}
+
+// legForTask returns the array leg whose contiguous task-index range owns the
+// global task index g, plus g's LOCAL index within that leg. ok is false if g
+// falls outside every leg's range.
+func legForTask(legs []leg, g int) (leg, int, bool) {
+	for _, l := range legs {
+		if l.nTasks > 0 && g >= l.firstTask && g < l.firstTask+l.nTasks {
+			return l, g - l.firstTask, true
+		}
+	}
+	return leg{}, 0, false
 }
 
 // budgetForToken returns the budget that owns an escrow token, recorded at gate.
@@ -500,6 +584,21 @@ func (s *Server) handleBindMultiSource(req *wire.BindRequest, legs []leg) *wire.
 	s.jobToToken[req.JobID] = req.Token
 	s.mu.Unlock()
 
+	// Multi-source ARRAY (#96): a task binds to the ONE leg whose task-index range
+	// owns req.Idx; start that leg's task at its local index. (No fan-out — unlike
+	// the 1:1 time-slice legs below, array legs partition the tasks.)
+	if req.IsArrayTask {
+		l, local, ok := legForTask(legs, req.Idx)
+		if !ok {
+			return &wire.Frame{MsgKind: wire.KindBind, BindResp: &wire.BindResponse{OK: false, Reason: "array task index out of range"}}
+		}
+		if err := l.bd.StartTask(l.token, local, s.now()); err != nil &&
+			!errors.Is(err, budget.ErrNoSuchJob) && !errors.Is(err, budget.ErrBadState) {
+			return &wire.Frame{MsgKind: wire.KindBind, BindResp: &wire.BindResponse{OK: false, Reason: err.Error()}}
+		}
+		return &wire.Frame{MsgKind: wire.KindBind, BindResp: &wire.BindResponse{OK: true}}
+	}
+
 	now := s.now()
 	// All-or-none reprice. Every leg shares the job's rate c and is pre-Start, so
 	// Reprice(rate) succeeds on a leg iff 0 < rate <= c — the same condition for
@@ -532,6 +631,10 @@ func (s *Server) handleBindMultiSource(req *wire.BindRequest, legs []leg) *wire.
 // every budget conserves independently. The leg ordering matches the funding plan
 // (contiguous time slices), so legRuntime cuts each leg's share by prefix sums.
 func (s *Server) handleSettleMultiSource(req *wire.SettleRequest, master string, legs []leg) *wire.Frame {
+	// Multi-source ARRAY (#96): settle the one task at req.Idx on the leg owning it.
+	if req.IsArrayTask {
+		return s.settleMultiSourceArrayTask(req, master, legs)
+	}
 	now := s.now()
 	// Build the []legPlan view legRuntime needs (index within this slice + W).
 	plan := make([]legPlan, len(legs))
@@ -571,6 +674,48 @@ func (s *Server) handleSettleMultiSource(req *wire.SettleRequest, master string,
 	if firstErr != nil {
 		return settleReject(firstErr.Error())
 	}
+	return &wire.Frame{MsgKind: wire.KindSettle, SettleResp: &wire.SettleResponse{OK: true}}
+}
+
+// settleMultiSourceArrayTask settles one task of a multi-source array (#96): route
+// req.Idx to the leg owning it and settle that leg's task at its local index. The
+// master routing (tokenLegs, tokenArrayN) is dropped only when the LAST task
+// across all legs settles.
+func (s *Server) settleMultiSourceArrayTask(req *wire.SettleRequest, master string, legs []leg) *wire.Frame {
+	l, local, ok := legForTask(legs, req.Idx)
+	if !ok {
+		return settleReject("array task index out of range")
+	}
+	now := s.now()
+	var err error
+	switch req.Kind {
+	case wire.SettleComplete:
+		err = l.bd.CompleteTask(l.token, local, req.Runtime, now)
+	case wire.SettleTimeout:
+		err = l.bd.TimeoutTask(l.token, local, now)
+	case wire.SettleCancel:
+		err = l.bd.CancelTask(l.token, local, req.Elapsed, now)
+	case wire.SettleInfraFail:
+		err = l.bd.InfraFailTask(l.token, local, req.Elapsed, now)
+	default:
+		return settleReject(fmt.Sprintf("unknown settle kind %q", req.Kind))
+	}
+	if err != nil {
+		return settleReject(err.Error())
+	}
+	s.mu.Lock()
+	if req.JobID != "" {
+		delete(s.jobToToken, req.JobID)
+	}
+	if n, ok := s.tokenArrayN[master]; ok {
+		if n <= 1 {
+			delete(s.tokenArrayN, master)
+			delete(s.tokenLegs, master)
+		} else {
+			s.tokenArrayN[master] = n - 1
+		}
+	}
+	s.mu.Unlock()
 	return &wire.Frame{MsgKind: wire.KindSettle, SettleResp: &wire.SettleResponse{OK: true}}
 }
 

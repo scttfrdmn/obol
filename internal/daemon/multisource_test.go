@@ -213,14 +213,74 @@ func TestMultiSourceSingleElement(t *testing.T) {
 	}
 }
 
-// TestMultiSourceRejectsArray: arrays are out of scope this round.
-func TestMultiSourceRejectsArray(t *testing.T) {
-	srv := multiSourceServer(t, 100000, 100000, 0)
+// TestMultiSourceArrayWholeTasks (#96): an array is split across sources by whole
+// tasks (ordered fallback). grant funds floor(250/100)=2 tasks, startup the rest.
+func TestMultiSourceArrayWholeTasks(t *testing.T) {
+	// rate 1, walltime 100 => one task costs 100. grant=250 funds 2 whole tasks
+	// (its extra 50 stays unused); startup covers the other 2. Array of 4.
+	srv := multiSourceServer(t, 250, 100000, 0)
 	g := srv.handleGate(&wire.GateRequest{
-		Sources: []string{"grant", "startup"}, TimeLimit: 100, NTasks: 10,
+		Sources: []string{"grant", "startup"}, TimeLimit: 100, NTasks: 4,
+	})
+	if g.GateResp == nil || !g.GateResp.Allow {
+		t.Fatalf("multi-source array gate rejected: %+v", g.GateResp)
+	}
+	tok := g.GateResp.Token
+	// grant escrows 2 tasks (200 of its 250); startup escrows 2 (200).
+	if bal(t, srv, "grant") != 250-200 {
+		t.Errorf("grant = %d, want 50 (2 tasks * 100 escrowed, 50 left unused)", bal(t, srv, "grant"))
+	}
+	if bal(t, srv, "startup") != 100000-200 {
+		t.Errorf("startup = %d, want %d", bal(t, srv, "startup"), 100000-200)
+	}
+
+	// Bind + settle all 4 tasks by global index. Tasks 0,1 -> grant; 2,3 -> startup.
+	for idx := 0; idx < 4; idx++ {
+		b := srv.handleBind(&wire.BindRequest{Token: tok, JobID: jobTaskID(idx), IsArrayTask: true, Idx: idx})
+		if b.BindResp == nil || !b.BindResp.OK {
+			t.Fatalf("bind task %d: %+v", idx, b.BindResp)
+		}
+	}
+	// Task 0 completes early (runtime 40 → grant bills 40, refunds 60); 1-3 full.
+	srv.handleSettle(&wire.SettleRequest{JobID: jobTaskID(0), Kind: wire.SettleComplete, Runtime: 40, IsArrayTask: true, Idx: 0})
+	for idx := 1; idx < 4; idx++ {
+		s := srv.handleSettle(&wire.SettleRequest{JobID: jobTaskID(idx), Kind: wire.SettleComplete, Runtime: 100, IsArrayTask: true, Idx: idx})
+		if s.SettleResp == nil || !s.SettleResp.OK {
+			t.Fatalf("settle task %d: %+v", idx, s.SettleResp)
+		}
+	}
+	// grant: 2 tasks, billed 40 + 100 = 140, refunded 60 → balance 250-140 = 110.
+	if bal(t, srv, "grant") != 110 {
+		t.Errorf("grant final = %d, want 110 (billed 140 of 200 escrowed)", bal(t, srv, "grant"))
+	}
+	// startup: 2 tasks billed full (200) → 100000-200.
+	if bal(t, srv, "startup") != 100000-200 {
+		t.Errorf("startup final = %d, want %d", bal(t, srv, "startup"), 100000-200)
+	}
+	allConserve(t, srv, "grant", "startup")
+	// Both arrays closed; routing cleaned up.
+	srv.mu.Lock()
+	_, legsLeft := srv.tokenLegs[tok]
+	_, nLeft := srv.tokenArrayN[tok]
+	srv.mu.Unlock()
+	if legsLeft || nLeft {
+		t.Errorf("multi-source array routing leaked: legs=%v n=%v", legsLeft, nLeft)
+	}
+}
+
+// TestMultiSourceArrayUnfunded: sources jointly can't fund all N tasks → reject,
+// nothing escrowed anywhere.
+func TestMultiSourceArrayUnfunded(t *testing.T) {
+	// task cost 100; grant funds 2, startup funds 1 (150→1 whole task) = 3 < 4.
+	srv := multiSourceServer(t, 250, 150, 0)
+	g := srv.handleGate(&wire.GateRequest{
+		Sources: []string{"grant", "startup"}, TimeLimit: 100, NTasks: 4,
 	})
 	if g.GateResp == nil || g.GateResp.Allow {
-		t.Errorf("multi-source array should be rejected: %+v", g.GateResp)
+		t.Fatalf("under-funded array should reject: %+v", g.GateResp)
+	}
+	if bal(t, srv, "grant") != 250 || bal(t, srv, "startup") != 150 {
+		t.Errorf("rejected array reserved money: grant=%d startup=%d", bal(t, srv, "grant"), bal(t, srv, "startup"))
 	}
 }
 
