@@ -116,6 +116,9 @@ bin/obol --socket /tmp/obold.sock show   # balance debited by the 300s consumed,
 
 ## Documentation
 
+**[`docs/`](docs/) is the documentation map** — it routes you by intent (evaluating
+/ trying / deploying / operating / contributing). The key pages:
+
 - **[`docs/concepts.md`](docs/concepts.md)** — how Obol works, built up from one
   worked example: reservations, settlement, hierarchy, windows, banked burst,
   costing, why money is integer, and **how Obol relates to Slurm
@@ -128,6 +131,8 @@ bin/obol --socket /tmp/obold.sock show   # balance debited by the 300s consumed,
 - **[`docs/operations.md`](docs/operations.md)** — running it safely: durability &
   backup/restore, recovery after failure, the orphan janitors + `reconcile`,
   fail-open/closed, monitoring, upgrades/rollback, and the admin model.
+- **[`docs/cli-reference.md`](docs/cli-reference.md)** — every `obol` verb, its
+  flags, and exit codes.
 - **[`docs/SEAM_DESIGN.md`](docs/SEAM_DESIGN.md)** — the architecture and *why* it
   looks that way (sidecar daemon, three-tier latency, correlation token, failure modes).
 - **[`docs/INTEGRATION.md`](docs/INTEGRATION.md)** — the test tiers and what each proves
