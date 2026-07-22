@@ -158,7 +158,7 @@ sudo systemctl enable --now obold
 
 A restart is safe at any time — recovery replays the WAL, so no state is lost by a
 kill/crash. See [`operations.md`](operations.md) for backup, upgrade, and recovery
-procedures (once written; tracked in the docs milestone).
+procedures.
 
 ### Socket permissions & who may administer
 

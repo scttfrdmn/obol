@@ -135,5 +135,3 @@ Before running Obol where it gates real spend:
   daemon-side and tested (`obol dispatch`/`handleDispatch`), but the C plugin that
   calls it from `priority/multifactor` isn't CI-built.
 - **Integration tiers aren't in CI** — validated on demand ([above](#validation-status)).
-- **Terminal recordings / screencasts** of admission, rejection, settlement, and
-  refund are not yet captured (tracked in the docs milestone).
