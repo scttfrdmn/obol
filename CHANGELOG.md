@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Per-task array bind/settle through the daemon (#103, toward #96): the wire
+  `BindRequest`/`SettleRequest` gained `array_task`+`idx`, and the daemon now
+  drives the array kernel per task — `handleBind`→`StartTask`, `handleSettle`→the
+  matching `*Task` transition — so an array job's tasks each escrow, start, and
+  settle their own slice with the budget conserving throughout. Token routing is
+  dropped only when the last task settles. `obol bind`/`obol settle` gained
+  `--idx`. This is the daemon/wire half; the shim reading `--array` and the seam
+  scripts passing the task index follow (single-source arrays are still gated as
+  one escrow end to end until then).
+
 ## [0.10.1] - 2026-07-21
 
 Validation-only patch: the obol seam is now proven against all three burstlab

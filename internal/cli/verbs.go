@@ -104,13 +104,19 @@ func cmdBind(args []string, out, errOut io.Writer) int {
 	token := fs.String("token", "", "gate token")
 	jobid := fs.String("jobid", "", "Slurm job id")
 	nodeType := fs.String("node-type", "", "actual node type (triggers the cost true-up)")
+	idx := fs.Int("idx", -1, "array task index (>=0 binds one task of an array escrow, #103)")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
 	if *token == "" || *jobid == "" {
 		return fail(errOut, fmt.Errorf("--token and --jobid are required"))
 	}
-	resp, err := roundTrip(*socket, wire.BindNodeFrame(*token, *jobid, *nodeType))
+	frame := wire.BindNodeFrame(*token, *jobid, *nodeType)
+	if *idx >= 0 {
+		frame.Bind.IsArrayTask = true
+		frame.Bind.Idx = *idx
+	}
+	resp, err := roundTrip(*socket, frame)
 	if err != nil {
 		return fail(errOut, err)
 	}
@@ -132,6 +138,7 @@ func cmdSettle(args []string, out, errOut io.Writer) int {
 	kind := fs.String("kind", "", "complete|timeout|cancel|infrafail")
 	runtime := fs.Int64("runtime", 0, "runtime seconds (complete)")
 	elapsed := fs.Int64("elapsed", 0, "elapsed seconds (cancel/infrafail)")
+	idx := fs.Int("idx", -1, "array task index (>=0 settles one task of an array escrow, #103)")
 	ifPresent := fs.Bool("if-present", false, "treat an unknown/already-settled job as a no-op success (for jobcomp/epilog hooks that may double-fire)")
 	if err := fs.Parse(args); err != nil {
 		return 2
@@ -143,9 +150,14 @@ func cmdSettle(args []string, out, errOut io.Writer) int {
 	if err != nil {
 		return fail(errOut, err)
 	}
-	resp, err := roundTrip(*socket, wire.SettleFrame(&wire.SettleRequest{
+	settleReq := &wire.SettleRequest{
 		JobID: *jobid, Token: *token, Kind: sk, Runtime: *runtime, Elapsed: *elapsed,
-	}))
+	}
+	if *idx >= 0 {
+		settleReq.IsArrayTask = true
+		settleReq.Idx = *idx
+	}
+	resp, err := roundTrip(*socket, wire.SettleFrame(settleReq))
 	if err != nil {
 		return fail(errOut, err)
 	}

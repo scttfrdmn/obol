@@ -42,10 +42,11 @@ type Server struct {
 	nodeCost *NodeCost        // node-type rates (issue #65); nil/empty = not configured
 	ident    identityResolver // uid -> user/groups, only used for restricted accounts
 
-	mu          sync.Mutex                // guards jobToToken, tokenBudget, tokenLegs
+	mu          sync.Mutex                // guards jobToToken, tokenBudget, tokenLegs, tokenArrayN
 	jobToToken  map[string]string         // Slurm jobid -> (master) escrow token
 	tokenBudget map[string]*budget.Budget // single-source: token -> owning budget
 	tokenLegs   map[string][]leg          // multi-source: master token -> ordered legs (#54)
+	tokenArrayN map[string]int            // array token -> tasks not yet settled (#103)
 }
 
 // leg is one funded slice of a multi-source job (#54): an ordinary single-budget
@@ -84,6 +85,7 @@ func NewWithRegistry(reg *Registry, now Clock, w Weights) *Server {
 		jobToToken:  make(map[string]string),
 		tokenBudget: make(map[string]*budget.Budget),
 		tokenLegs:   make(map[string][]leg),
+		tokenArrayN: make(map[string]int),
 	}
 }
 
@@ -229,9 +231,13 @@ func (s *Server) handleGate(req *wire.GateRequest) *wire.Frame {
 		return gateReject(err.Error())
 	}
 	// Record token -> owning budget so BIND/SETTLE (which carry no account) route
-	// back to the right account's budget.
+	// back to the right account's budget. For an array, also track its task count
+	// so per-task settle can drop the routing when the last task settles (#103).
 	s.mu.Lock()
 	s.tokenBudget[token] = bd
+	if req.NTasks > 1 {
+		s.tokenArrayN[token] = req.NTasks
+	}
 	s.mu.Unlock()
 	return &wire.Frame{MsgKind: wire.KindGate, GateResp: &wire.GateResponse{Allow: true, Token: token}}
 }
@@ -349,6 +355,18 @@ func (s *Server) handleBind(req *wire.BindRequest) *wire.Frame {
 	s.jobToToken[req.JobID] = req.Token
 	s.mu.Unlock()
 
+	// Array-task binding (#103): the token owns an ArrayEscrow; start the one task
+	// identified by Idx. All tasks share the token (stamped once at the array gate);
+	// each task's own Slurm job id maps back to it via jobToToken above, so settle
+	// can resolve the token and then apply per-task. Best-effort start, like 1:1.
+	if req.IsArrayTask {
+		if err := bd.StartTask(req.Token, req.Idx, s.now()); err != nil &&
+			!errors.Is(err, budget.ErrNoSuchJob) && !errors.Is(err, budget.ErrBadState) {
+			return &wire.Frame{MsgKind: wire.KindBind, BindResp: &wire.BindResponse{OK: false, Reason: err.Error()}}
+		}
+		return &wire.Frame{MsgKind: wire.KindBind, BindResp: &wire.BindResponse{OK: true}}
+	}
+
 	// Node-type cost true-up (issue #65): the gate escrowed the partition's
 	// worst-case node rate; now Slurm has bound a real node, reprice to its rate
 	// BEFORE Start (the rate commits into rLive/burst at Start). Only applies when
@@ -398,6 +416,11 @@ func (s *Server) handleSettle(req *wire.SettleRequest) *wire.Frame {
 	if !ok {
 		return settleReject("no such escrow") // unknown/already-settled token
 	}
+	// Array-task settlement (#103): settle the one task identified by Idx via the
+	// matching *Task transition.
+	if req.IsArrayTask {
+		return s.settleArrayTask(req, token, bd)
+	}
 	now := s.now()
 	var err error
 	switch req.Kind {
@@ -422,6 +445,46 @@ func (s *Server) handleSettle(req *wire.SettleRequest) *wire.Frame {
 		delete(s.jobToToken, req.JobID)
 	}
 	delete(s.tokenBudget, token)
+	s.mu.Unlock()
+	return &wire.Frame{MsgKind: wire.KindSettle, SettleResp: &wire.SettleResponse{OK: true}}
+}
+
+// settleArrayTask settles one task (Idx) of the array escrow the token owns,
+// routing to the matching *Task kernel transition. The daemon drops the token's
+// routing only when the LAST task settles (tracked via tokenArrayN), so a token
+// with tasks still outstanding stays resolvable.
+func (s *Server) settleArrayTask(req *wire.SettleRequest, token string, bd *budget.Budget) *wire.Frame {
+	now := s.now()
+	var err error
+	switch req.Kind {
+	case wire.SettleComplete:
+		err = bd.CompleteTask(token, req.Idx, req.Runtime, now)
+	case wire.SettleTimeout:
+		err = bd.TimeoutTask(token, req.Idx, now)
+	case wire.SettleCancel:
+		err = bd.CancelTask(token, req.Idx, req.Elapsed, now)
+	case wire.SettleInfraFail:
+		err = bd.InfraFailTask(token, req.Idx, req.Elapsed, now)
+	default:
+		return settleReject(fmt.Sprintf("unknown settle kind %q", req.Kind))
+	}
+	if err != nil {
+		return settleReject(err.Error())
+	}
+	// Drop this task's jobid mapping; drop the token→budget + array-count entries
+	// only when the final task has settled (the kernel closes the ArrayEscrow then).
+	s.mu.Lock()
+	if req.JobID != "" {
+		delete(s.jobToToken, req.JobID)
+	}
+	if n, ok := s.tokenArrayN[token]; ok {
+		if n <= 1 {
+			delete(s.tokenArrayN, token)
+			delete(s.tokenBudget, token)
+		} else {
+			s.tokenArrayN[token] = n - 1
+		}
+	}
 	s.mu.Unlock()
 	return &wire.Frame{MsgKind: wire.KindSettle, SettleResp: &wire.SettleResponse{OK: true}}
 }
