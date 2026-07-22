@@ -16,20 +16,22 @@ import (
 // All non-determinism is captured in fields (notably Now), so replaying the
 // command stream through the same methods reproduces state exactly.
 type Command struct {
-	Kind    string  `json:"k"`
-	JobID   string  `json:"j,omitempty"`
-	ArrayID string  `json:"a,omitempty"`
-	Idx     int     `json:"i,omitempty"`
-	N       int     `json:"n,omitempty"`
-	C       Units   `json:"c,omitempty"` // per-job cost rate frozen at submit (0 = budget flat rate)
-	W       Seconds `json:"w,omitempty"`
-	Runtime Seconds `json:"r,omitempty"`
-	Elapsed Seconds `json:"e,omitempty"`
-	Amount  Units   `json:"amt,omitempty"` // top-up / withdraw amount (KindTopUp/KindWithdraw)
-	TS      Seconds `json:"ts,omitempty"`  // window start (KindSetWindow)
-	TE      Seconds `json:"te,omitempty"`  // window end (KindSetWindow)
-	Xfer    string  `json:"x,omitempty"`   // transfer id tagging a topup/withdraw leg (obol transfer, #25)
-	Now     Seconds `json:"t,omitempty"`
+	Kind     string  `json:"k"`
+	JobID    string  `json:"j,omitempty"`
+	ArrayID  string  `json:"a,omitempty"`
+	Idx      int     `json:"i,omitempty"`
+	N        int     `json:"n,omitempty"`
+	C        Units   `json:"c,omitempty"` // per-job cost rate frozen at submit (0 = budget flat rate)
+	W        Seconds `json:"w,omitempty"`
+	Runtime  Seconds `json:"r,omitempty"`
+	Elapsed  Seconds `json:"e,omitempty"`
+	Amount   Units   `json:"amt,omitempty"`  // top-up / withdraw amount (KindTopUp/KindWithdraw)
+	TS       Seconds `json:"ts,omitempty"`   // window start (KindSetWindow)
+	TE       Seconds `json:"te,omitempty"`   // window end (KindSetWindow)
+	Xfer     string  `json:"x,omitempty"`    // transfer id tagging a topup/withdraw leg (obol transfer, #25)
+	BurstOn  bool    `json:"bon,omitempty"`  // KindSetBurst: enable/disable
+	BurstPct float64 `json:"bpct,omitempty"` // KindSetBurst: ceiling pct (Amount carries the draw cap)
+	Now      Seconds `json:"t,omitempty"`
 }
 
 // Command kinds. Each names one mutating transition; the WAL records these so
@@ -53,6 +55,7 @@ const (
 	KindReprice       = "rep"
 	KindSetRate       = "srate"
 	KindSetWindow     = "swin"
+	KindSetBurst      = "sburst"
 )
 
 // WAL is an append-only command log. Record framing: [u32 len][u32 crc32][payload].

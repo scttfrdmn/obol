@@ -496,6 +496,74 @@ func (bd *Budget) SetWindow(ts, te Seconds, now Seconds) error {
 	return nil
 }
 
+// SetBurst changes the burst token bucket config on a live budget (issue #99):
+// enable/disable it, or adjust the ceiling pct / per-job draw cap. Burst is
+// PERMISSION, not money (invariant #5) — the burst ledger is a separate bounded
+// pot that never participates in money conservation — so this touches no money;
+// conservation is trivially preserved. It must keep the burst bounds invariant
+// (0 <= burstPot <= ceiling, fracAcc in [0,T), rLive >= 0) true.
+//
+// Logged config transition (issue #8): recorded in the WAL and replayed in order,
+// so a submit/start before the change replays under the old burst config and one
+// after under the new — never snapshot-only, which would lose that ordering.
+//
+// Mid-flight semantics:
+//   - Enabling: anchor lastTouch to now BEFORE turning burst on, so the first
+//     accrue banks idle pace from this moment, not from a stale lastTouch (which
+//     would instantly overfill the pot).
+//   - Re-configuring while on: accrue first (bank what was earned at the old
+//     ceiling), then apply the new pct/cap.
+//   - Lowering the ceiling below the banked pot: clamp burstPot down to the new
+//     ceiling (excess permission tokens forfeited; no conservation impact).
+//   - Disabling: zero the bucket (burstPot/rLive/fracAcc). Live escrows keep an
+//     inert BurstResv; settle only refunds tokens when BurstEnabled, so their
+//     MONEY still settles correctly.
+func (bd *Budget) SetBurst(enabled bool, ceilingPct float64, drawCap Units, now Seconds) error {
+	bd.mu.Lock()
+	defer bd.mu.Unlock()
+	defer bd.publishLocked()
+
+	// Validate (mirrors AccountConfig.validateBurst): a disable must not carry
+	// stray pct/cap; an enable needs pct in (0,1] and a non-negative cap.
+	if !enabled {
+		if ceilingPct != 0 || drawCap != 0 {
+			return ErrBadState
+		}
+	} else {
+		if ceilingPct <= 0 || ceilingPct > 1 || drawCap < 0 {
+			return ErrBadState
+		}
+	}
+
+	if err := bd.logCmd(Command{Kind: KindSetBurst, BurstOn: enabled, BurstPct: ceilingPct, Amount: drawCap, Now: now}); err != nil {
+		return err
+	}
+
+	if !enabled {
+		bd.BurstEnabled = false
+		bd.BurstCeilingPct = 0
+		bd.BurstDrawCap = 0
+		bd.burstPot = 0
+		bd.rLive = 0
+		bd.fracAcc = 0
+		return nil
+	}
+
+	if bd.BurstEnabled {
+		bd.accrue(now) // bank what was earned under the old ceiling first
+	} else {
+		bd.lastTouch = now // enabling: start banking from now, not window start
+		bd.BurstEnabled = true
+	}
+	bd.BurstCeilingPct = ceilingPct
+	bd.BurstDrawCap = drawCap
+	if c := bd.burstCeiling(); bd.burstPot > c {
+		bd.burstPot = c // lowered ceiling: clamp; forfeit excess permission tokens
+		bd.fracAcc = 0  // at ceiling, drop the sub-unit remainder (as accrue does)
+	}
+	return nil
+}
+
 // ---- read-only inspectors (take the lock to read a consistent snapshot) ----
 
 // Balance returns the current available balance B.

@@ -62,6 +62,7 @@ const (
 	KindTransfer  Kind = "transfer"
 	KindDispatch  Kind = "dispatch"
 	KindReconcile Kind = "reconcile"
+	KindSetBurst  Kind = "set_burst"
 )
 
 // SettleKind names how a job ended, routing to the matching kernel transition.
@@ -244,6 +245,16 @@ type SetWindowRequest struct {
 	Account string `json:"account"`
 	TS      int64  `json:"ts"`
 	TE      int64  `json:"te"`
+}
+
+// SetBurstRequest changes an account's burst config at runtime (admin-only, #99):
+// enable/disable, or adjust the ceiling pct / per-job draw cap. A logged kernel
+// transition, so it survives recovery. Enabled=false requires CeilingPct/DrawCap 0.
+type SetBurstRequest struct {
+	Account    string  `json:"account"`
+	Enabled    bool    `json:"enabled"`
+	CeilingPct float64 `json:"ceiling_pct,omitempty"`
+	DrawCap    int64   `json:"draw_cap,omitempty"`
 }
 
 // AckResponse is a generic ok/reason acknowledgement for config-mutation verbs.
@@ -451,6 +462,7 @@ type Frame struct {
 	Transfer  *TransferRequest  `json:"transfer,omitempty"`
 	Dispatch  *DispatchRequest  `json:"dispatch,omitempty"`
 	Reconcile *ReconcileRequest `json:"reconcile,omitempty"`
+	SetBurst  *SetBurstRequest  `json:"set_burst,omitempty"`
 
 	// Responses (one populated per response frame).
 	GateResp      *GateResponse      `json:"gate_resp,omitempty"`
@@ -613,4 +625,9 @@ func DispatchFrame(req *DispatchRequest) *Frame {
 // ReconcileFrame wraps a ReconcileRequest in a request Frame.
 func ReconcileFrame(req *ReconcileRequest) *Frame {
 	return &Frame{MsgKind: KindReconcile, Reconcile: req}
+}
+
+// SetBurstFrame wraps a SetBurstRequest in a request Frame.
+func SetBurstFrame(req *SetBurstRequest) *Frame {
+	return &Frame{MsgKind: KindSetBurst, SetBurst: req}
 }

@@ -322,6 +322,29 @@ func TestSetRateWindowVerbs(t *testing.T) {
 	if r := bd.Report(1); r.TS != 0 || r.TE != 500000 {
 		t.Errorf("window = [%d,%d), want [0,500000)", r.TS, r.TE)
 	}
+
+	// set-burst: enable, then disable (#99).
+	if code, out, errOut := run(sock, "set-burst", "--account", "default", "--ceiling-pct", "0.5", "--draw-cap", "1000"); code != 0 {
+		t.Fatalf("set-burst enable exit %d, stderr=%q", code, errOut)
+	} else if !strings.Contains(out, "enabled") {
+		t.Errorf("set-burst out = %q", out)
+	}
+	if !bd.Report(1).BurstEnabled {
+		t.Error("burst not enabled after set-burst")
+	}
+	if code, _, errOut := run(sock, "set-burst", "--account", "default", "--disable"); code != 0 {
+		t.Fatalf("set-burst disable exit %d, stderr=%q", code, errOut)
+	}
+	if bd.Report(1).BurstEnabled {
+		t.Error("burst still enabled after --disable")
+	}
+	// Neither/both flags → usage error.
+	if code, _, _ := run(sock, "set-burst", "--account", "default"); code != 1 {
+		t.Errorf("set-burst with neither flag: exit %d, want 1", code)
+	}
+	if code, _, _ := run(sock, "set-burst", "--account", "default", "--ceiling-pct", "0.5", "--disable"); code != 1 {
+		t.Errorf("set-burst with both flags: exit %d, want 1", code)
+	}
 }
 
 // TestSetVerbsBadArgs covers required-arg validation.

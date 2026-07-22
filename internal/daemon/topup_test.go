@@ -208,6 +208,42 @@ func TestSetRateWindowAdminGated(t *testing.T) {
 	}
 }
 
+// TestSetBurstAdminGated confirms set-burst requires admin and that it enables /
+// disables burst on the account (#99).
+func TestSetBurstAdminGated(t *testing.T) {
+	srv := newAdminServer(t) // admins alice(10)/ops(11); mallory=13
+	smith, _ := srv.reg.Resolve("lab_smith")
+
+	// Non-admin rejected, no change.
+	if r := srv.handleSetBurst(&wire.SetBurstRequest{Account: "lab_smith", Enabled: true, CeilingPct: 0.5}, adminPeer(13)); r.AckResp == nil || r.AckResp.OK {
+		t.Errorf("non-admin set-burst should be rejected: %+v", r.AckResp)
+	}
+	if smith.Report(testNow()).BurstEnabled {
+		t.Error("burst enabled by a non-admin")
+	}
+	// Admin enables.
+	if r := srv.handleSetBurst(&wire.SetBurstRequest{Account: "lab_smith", Enabled: true, CeilingPct: 0.5, DrawCap: 2000}, adminPeer(10)); r.AckResp == nil || !r.AckResp.OK {
+		t.Fatalf("admin set-burst rejected: %+v", r.AckResp)
+	}
+	if rr := smith.Report(testNow()); !rr.BurstEnabled || rr.BurstCeiling != 500 { // 0.5 * 1000
+		t.Errorf("burst not enabled: %+v", rr)
+	}
+	// Admin disables.
+	if r := srv.handleSetBurst(&wire.SetBurstRequest{Account: "lab_smith", Enabled: false}, adminPeer(11)); r.AckResp == nil || !r.AckResp.OK {
+		t.Fatalf("group-admin disable rejected: %+v", r.AckResp)
+	}
+	if smith.Report(testNow()).BurstEnabled {
+		t.Error("burst still enabled after disable")
+	}
+	// Bad config rejected; unknown account rejected.
+	if r := srv.handleSetBurst(&wire.SetBurstRequest{Account: "lab_smith", Enabled: true, CeilingPct: 2}, adminPeer(10)); r.AckResp == nil || r.AckResp.OK {
+		t.Error("ceiling pct > 1 should be rejected")
+	}
+	if r := srv.handleSetBurst(&wire.SetBurstRequest{Account: "ghost", Enabled: true, CeilingPct: 0.5}, adminPeer(10)); r.AckResp == nil || r.AckResp.OK {
+		t.Error("set-burst on unknown account should be rejected")
+	}
+}
+
 // TestCreateAndAttachAdminGated confirms create/attach require admin and that
 // attach actually changes the access verdict.
 func TestCreateAndAttachAdminGated(t *testing.T) {
