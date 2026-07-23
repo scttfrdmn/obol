@@ -12,8 +12,15 @@ for the design rationale and the confirmed-vs-unknown analysis.
 
 | File | Role |
 |------|------|
-| `install-obol.sh` | The installer. Runs as a ParallelCluster `OnNodeConfigured` custom action (or by hand as root). Installs the binaries + Lua seam + prolog/jobcomp, writes the obold systemd unit + config, starts obold, and `scontrol reconfigure`s. |
-| `cluster.sample.yaml` | A ParallelCluster cluster config wired for obol: the `OnNodeConfigured` action and the `CustomSlurmSettings` seam directives. Replace the `PLACEHOLDER_*` values. |
+| `install-obol.sh` | The installer, **phase-aware**: `--phase files` lays down the binaries + Lua seam + prolog/jobcomp; `--phase daemon` writes the obold config + systemd unit, starts obold, and `scontrol reconfigure`s; `--phase all` does both (by-hand/custom-AMI installs). |
+| `cluster.sample.yaml` | A ParallelCluster cluster config wired for obol: the two custom actions (`OnNodeStart`→files, `OnNodeConfigured`→daemon) and the `CustomSlurmSettings` seam directives. Replace the `PLACEHOLDER_*` values. |
+
+> **Ordering matters (learned from a real cluster failure).** ParallelCluster starts
+> `slurmctld` during its own bootstrap, **before** `OnNodeConfigured` runs. With
+> `JobSubmitPlugins=lua` set, slurmctld fatals at startup if `job_submit.lua` isn't
+> already on disk — failing the whole head-node bootstrap. So the seam **files** are
+> installed at **`OnNodeStart`** (`--phase files`), and the **daemon** is started at
+> `OnNodeConfigured` (`--phase daemon`). PC loads the plugin from `/opt/slurm/etc/`.
 
 ## The attachment model (why it looks like this)
 
@@ -24,7 +31,9 @@ by editing files slurmctld reads:
 
 1. **`CustomSlurmSettings`** (cluster YAML) carries the four `slurm.conf` directives.
    ParallelCluster appends them and preserves them across updates (≥ 3.6.0).
-2. **`OnNodeConfigured`** (custom action) puts the binaries/seam/daemon on the box.
+2. **Two custom actions** put the seam on the box in the right order:
+   `OnNodeStart` runs `install-obol.sh --phase files` (before slurmctld), and
+   `OnNodeConfigured` runs `--phase daemon` (starts obold after shared storage mounts).
 
 ### The seam directives
 
