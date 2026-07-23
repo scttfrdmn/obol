@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `docs/feasibility-pcs.md`: a feasibility write-up for running obol on AWS PCS
+  (managed Slurm), grounded in the current (July 2026) PCS `SlurmCustomSetting`
+  allowlists. Conclusion: feasible **with a seam redesign** — PCS does not allowlist
+  `JobSubmitPlugins` (the GATE) or `JobCompType`/`JobCompLoc` (the SETTLE) and gives
+  no controller shell, but it **does** allowlist `CliFilterPlugins=cli_filter/lua`
+  (a client-side submit hook that can reject jobs), `Prolog`, `Epilog`, and
+  `AccountingStorage*`. Documents the re-homed attachment model (GATE→cli_filter,
+  BIND→Prolog, SETTLE→Epilog/slurmdbd, obold on a customer login node), the
+  load-bearing **enforcement-integrity** open question (a client-side gate has no
+  controller-side backstop on PCS), and the confirmed-vs-unknown split. The money
+  kernel is unaffected.
+
 ### Changed
 - README/docs cleanup: removed the README Branding section; the quickstart and
   verify steps now install the binaries to `PATH` and invoke bare `obold`/`obol`
