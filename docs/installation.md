@@ -107,6 +107,8 @@ wins, the config only fills gaps.
 | Flag | Default | Purpose |
 |------|---------|---------|
 | `-socket` | `/run/obol/obold.sock` | Unix listen socket |
+| `-socket-group` | *(none)* | group (name or gid) to own the socket so a non-root slurmctld can connect (e.g. `slurm`); empty leaves ownership unchanged |
+| `-socket-mode` | *(none)* | octal mode for the socket, e.g. `0660` to let the socket group connect; empty leaves the listen default |
 | `-state-dir` | `/var/lib/obol` | per-account WAL + snapshot directory |
 | `-config` | *(none)* | multi-account config JSON; omit to use the single-budget flags below |
 | `-sync` | `true` | `fdatasync` the WAL on every append. **Leave true in production** — false trades durability for throughput (tests only) |
@@ -171,6 +173,15 @@ admin, and you can name `admin_users`/`admin_groups` in the config
 ([`configuration.md`](configuration.md#admins)). When no admin list is set, admin
 enforcement is off and the socket's file permissions are the only boundary — so on
 a shared controller, restrict the socket directory or set an admin list.
+
+**When slurmctld runs as a non-root user** (common on managed Slurm — e.g.
+ParallelCluster runs it as `slurm`), the GATE shim can't connect to a root-owned
+socket, because `connect(2)` needs *write* permission. Run `obold` with
+`-socket-group slurm -socket-mode 0660` so the socket is `root:slurm` and the
+`slurm` user can reach it. This only widens who can drive the gate/bind/settle
+lifecycle and send read verbs — **mutating verbs stay gated on `SO_PEERCRED`**, which
+the socket mode can't spoof, so grouping the socket to `slurm` does not make `slurm`
+an admin.
 
 ---
 

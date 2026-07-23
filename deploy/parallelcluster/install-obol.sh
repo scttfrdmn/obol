@@ -241,25 +241,35 @@ EOF
   # The GATE shim runs INSIDE slurmctld, which runs as the 'slurm' user on
   # ParallelCluster. obold's socket is created root-owned, and connect(2) on a
   # Unix socket needs WRITE permission — which 'slurm' lacks on a 0755 socket, so
-  # every gate fails "budget daemon unreachable". Group the socket to 'slurm' and
-  # make it group-writable so slurmctld can connect. (Learned on a live cluster;
-  # a future obold -socket-group/-socket-mode flag would make this a daemon
-  # concern rather than an ExecStartPost.)
+  # every gate fails "budget daemon unreachable". obold's -socket-group /
+  # -socket-mode flags (#136) set the socket to root:slurm 0660 at listen time so
+  # slurmctld can connect while non-group users can't. On an older obold that
+  # predates those flags, an ExecStartPost chgrp/chmod is the fallback.
   local sockgrp="slurm"
   getent group "$sockgrp" >/dev/null 2>&1 || sockgrp="root"
+  local sockflags=""
+  if "$BINDIR/obold" -help 2>&1 | grep -q -- "-socket-group"; then
+    sockflags=" -socket-group $sockgrp -socket-mode 0660"
+    log "obold supports -socket-group; socket will be $sockgrp:0660"
+  fi
 
   log "installing obold.service (socket group: $sockgrp)"
   install -d -m 0750 "$STATE_DIR"
-  cat > /etc/systemd/system/obold.service <<EOF
+  {
+    cat <<EOF
 [Unit]
 Description=obol budget daemon
 After=network.target
 Before=slurmctld.service
 
 [Service]
-ExecStart=$BINDIR/obold -socket $SOCKET -state-dir $STATE_DIR -config /etc/obol/obold.json
-# Let the slurmctld user (which runs the GATE shim) connect to the socket.
-ExecStartPost=/bin/sh -c 'for i in \$(seq 1 50); do [ -S "$SOCKET" ] && break; sleep 0.1; done; chgrp $sockgrp "$SOCKET" && chmod 0660 "$SOCKET"'
+ExecStart=$BINDIR/obold -socket $SOCKET -state-dir $STATE_DIR -config /etc/obol/obold.json${sockflags}
+EOF
+    # Fallback for an obold without the flags: fix perms after start.
+    if [[ -z "$sockflags" ]]; then
+      echo "ExecStartPost=/bin/sh -c 'for i in \$(seq 1 50); do [ -S \"$SOCKET\" ] && break; sleep 0.1; done; chgrp $sockgrp \"$SOCKET\" && chmod 0660 \"$SOCKET\"'"
+    fi
+    cat <<EOF
 Restart=on-failure
 RestartSec=2s
 RuntimeDirectory=obol
@@ -269,6 +279,7 @@ Group=root
 [Install]
 WantedBy=multi-user.target
 EOF
+  } > /etc/systemd/system/obold.service
 
   systemctl daemon-reload
   systemctl enable --now obold.service

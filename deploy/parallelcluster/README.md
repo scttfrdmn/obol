@@ -135,8 +135,10 @@ Getting there surfaced four things a stock PC AMI needs, all now handled by
    `admin_comment`, or BIND silently no-ops. The generated wrapper adds the Slurm
    `bin` dir to PATH.
 4. **Socket group for the `slurm` user** — slurmctld runs as `slurm`; connecting to
-   the root-owned socket needs it group-writable. The systemd unit `chgrp slurm` +
-   `chmod 0660`s the socket on start.
+   the root-owned socket needs it group-writable. `obold -socket-group slurm
+   -socket-mode 0660` (#136) sets this at listen time; the installer passes those
+   flags when the installed obold supports them, and falls back to an ExecStartPost
+   `chgrp`/`chmod` on older builds.
 
 ## State durability (read this)
 
@@ -165,6 +167,6 @@ replacement fencing (single writer), that `update-cluster` re-runs the action an
 preserves `CustomSlurmSettings`, EFS/FSx `fdatasync` durability under `-sync true`,
 the burst `site_factor` plugin on PC, and obol's seam against **Slurm 25.11**
 (outside the currently tested 22.05/23.11/24.05 set — it worked in this run, but
-isn't in CI). Two of the four fixes above are better as **daemon features** than
-install-time workarounds — a `-socket-group`/`-socket-mode` flag on `obold`, and
-bundling/locating a Lua transport backend — tracked as follow-up issues.
+isn't in CI). Of the four fixes above, the socket-group one is now a proper
+**daemon feature** (`obold -socket-group`/`-socket-mode`, #136); a robust Lua
+transport backend (#137) is still tracked as a follow-up.
