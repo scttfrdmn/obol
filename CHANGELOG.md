@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `docs/feasibility-parallelcluster.md`: a feasibility write-up for running obol on
+  AWS ParallelCluster. Conclusion: feasible today with **no seam changes** — the
+  head node is customer-owned with root and a configurable `slurm.conf`, so all four
+  seam hooks attach unchanged; the only PC-specific work is packaging (a bootstrap
+  custom action + putting `-state-dir` on managed shared storage) and a head-node-
+  replacement drill. Documents the confirmed-vs-unknown split and the recommended
+  attachment model.
+
 ### Changed
 - README/docs cleanup: removed the README Branding section; the quickstart and
   verify steps now install the binaries to `PATH` and invoke bare `obold`/`obol`
