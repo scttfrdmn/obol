@@ -25,10 +25,19 @@ package.path = obol_lua_dir .. "/?.lua;" .. package.path
 -- luasocket ships C modules (socket/core.so, socket/unix.so). slurmctld's
 -- embedded interpreter may not have the system cpath, so add the common lib
 -- dirs explicitly. Harmless if already present or if the FFI fallback is used.
+-- Includes /usr/local/lib/lua/<ver> because a luasocket built from source (the
+-- fallback on managed hosts that lack a lua-socket package — e.g. AWS
+-- ParallelCluster, #137) installs there by default. OBOL_LUA_CPATH prepends
+-- extra ";"-separated patterns for sites that put the C modules elsewhere.
+local extra_cpath = os.getenv("OBOL_LUA_CPATH")
 package.cpath = table.concat({
+  (extra_cpath and (extra_cpath .. ";") or ""),
   "/usr/lib64/lua/5.4/?.so",
   "/usr/lib/lua/5.4/?.so",
+  "/usr/local/lib/lua/5.4/?.so",
   "/usr/lib64/lua/5.3/?.so",
+  "/usr/lib/lua/5.3/?.so",
+  "/usr/local/lib/lua/5.3/?.so",
   package.cpath,
 }, ";")
 

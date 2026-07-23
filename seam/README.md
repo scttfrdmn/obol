@@ -45,6 +45,11 @@ Environment for the scripts and shim:
 OBOL_SOCKET=/run/obol/obold.sock   # must match obold -socket
 OBOL_BIN=/usr/local/bin/obol       # CLI path for the scripts
 OBOL_TIMEOUT_MS=50                 # shim hard timeout for the GATE call
+OBOL_LUA_DIR=/etc/slurm/lua        # where the obol_wire/obol_transport modules live
+OBOL_LUA_CPATH=                    # extra ";"-separated C-module patterns, prepended
+                                   # to the shim cpath (for luasocket in a nonstandard
+                                   # location); the shim already searches the common
+                                   # /usr/lib64, /usr/lib, and /usr/local/lib dirs
 ```
 
 **jobcomp runs with a minimal environment.** slurmctld invokes the `jobcomp/script`
