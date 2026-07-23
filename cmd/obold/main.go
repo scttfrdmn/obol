@@ -33,6 +33,8 @@ func main() {
 	fs := flag.NewFlagSet("obold", flag.ExitOnError)
 	var cfg config
 	fs.StringVar(&cfg.sock, "socket", "/run/obol/obold.sock", "path to the Unix listen socket")
+	fs.StringVar(&cfg.sockGroup, "socket-group", "", "group (name or gid) to own the socket, so a non-root slurmctld can connect (e.g. slurm); empty leaves it unchanged")
+	fs.StringVar(&cfg.sockMode, "socket-mode", "", "octal mode for the socket, e.g. 0660 to allow the socket group to connect; empty leaves it at listen default")
 	fs.StringVar(&cfg.dir, "state-dir", "/var/lib/obol", "budget state directory (per-account WAL + snapshot)")
 	fs.StringVar(&cfg.configPath, "config", "", "multi-account config (JSON); omit for the single-budget flags below")
 	fs.BoolVar(&cfg.sync, "sync", true, "fdatasync the WAL on every append (production: true)")
@@ -59,14 +61,15 @@ func main() {
 
 // config holds the parsed obold flags.
 type config struct {
-	sock, dir    string
-	configPath   string
-	sync, create bool
-	rate, b0     int64
-	window       time.Duration
-	unboundTTL   time.Duration
-	sweepEvery   time.Duration
-	weights      daemon.Weights
+	sock, dir           string
+	sockGroup, sockMode string
+	configPath          string
+	sync, create        bool
+	rate, b0            int64
+	window              time.Duration
+	unboundTTL          time.Duration
+	sweepEvery          time.Duration
+	weights             daemon.Weights
 }
 
 // nowClock is the daemon's wall clock as epoch seconds, fed into transitions so
@@ -97,6 +100,12 @@ func run(cfg config) error {
 	ln, err := net.Listen("unix", cfg.sock)
 	if err != nil {
 		return fmt.Errorf("listen: %w", err)
+	}
+	// Set socket group/mode so a non-root slurmctld can connect (#136). Done
+	// after Listen creates the socket, before Serve accepts. No-op unless set.
+	if err := applySocketPerms(cfg.sock, cfg.sockGroup, cfg.sockMode); err != nil {
+		_ = ln.Close()
+		return err
 	}
 
 	// Graceful shutdown: close the listener so Serve returns, then Close flushes.

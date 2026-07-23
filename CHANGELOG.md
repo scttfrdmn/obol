@@ -8,6 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `obold -socket-group` / `-socket-mode` (#136): set the listen socket's group
+  (name or gid) and octal mode at listen time, so a **non-root slurmctld** (e.g.
+  ParallelCluster runs it as `slurm`) can connect — `connect(2)` on a Unix socket
+  needs write permission, which the default root-owned socket denies. Recommended
+  pairing is `-socket-group slurm -socket-mode 0660`. This only widens who can drive
+  the gate/bind/settle lifecycle and read verbs; **mutating verbs stay gated on
+  `SO_PEERCRED`**, so grouping the socket does not confer admin. The ParallelCluster
+  bundle now passes these flags (with an ExecStartPost fallback for older obold).
 - `docs/feasibility-parallelcluster.md`: a feasibility write-up for running obol on
   AWS ParallelCluster. Conclusion: feasible today with **one small seam divergence
   and no kernel changes** — the head node is customer-owned with root, so the seam
