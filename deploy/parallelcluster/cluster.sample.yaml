@@ -3,9 +3,17 @@
 # This shows the two obol-specific pieces layered onto an otherwise ordinary
 # ParallelCluster config:
 #
-#   1. HeadNode.CustomActions.OnNodeConfigured — runs install-obol.sh on the head
-#      node after it's configured. It installs the binaries + Lua seam, writes the
-#      obold systemd unit, starts obold, and reconfigures slurmctld.
+#   1. HeadNode.CustomActions — install-obol.sh runs in TWO phases:
+#        OnNodeStart  --phase files  : lays the binaries + Lua seam down BEFORE
+#                                      slurmctld starts. This ordering is required:
+#                                      ParallelCluster starts slurmctld during its
+#                                      own bootstrap, and with JobSubmitPlugins=lua
+#                                      in slurm.conf it fatals at startup if
+#                                      job_submit.lua isn't already present — which
+#                                      fails the whole head-node bootstrap.
+#        OnNodeConfigured --phase daemon : writes the obold config + systemd unit,
+#                                      starts obold, and reconfigures slurmctld
+#                                      (runs after shared storage is mounted).
 #
 #   2. Scheduling.SlurmSettings.CustomSlurmSettings — the slurm.conf directives
 #      that attach the seam. These MUST go here, not in a hand-edited slurm.conf:
@@ -31,14 +39,21 @@ HeadNode:
   Ssh:
     KeyName: PLACEHOLDER_KEY_NAME
   CustomActions:
-    OnNodeConfigured:
-      # install-obol.sh, hosted in S3. It downloads the obol release, installs
-      # the seam, and starts obold. Args pin the release and point the state dir
-      # at durable shared storage (see SharedStorage below).
+    # Phase 1 — lay the seam files down BEFORE slurmctld starts. Same script,
+    # --phase files. Must be OnNodeStart, not OnNodeConfigured (see header above).
+    OnNodeStart:
       Script: s3://PLACEHOLDER_BUCKET/obol/install-obol.sh
       Args:
+        - --phase
+        - files
         - --release
         - PLACEHOLDER_OBOL_RELEASE            # e.g. v0.14.0
+    # Phase 2 — start obold + reconfigure, after shared storage is mounted.
+    OnNodeConfigured:
+      Script: s3://PLACEHOLDER_BUCKET/obol/install-obol.sh
+      Args:
+        - --phase
+        - daemon
         - --state-dir
         - /shared/obol                        # on the shared FS, survives head-node replacement
         - --config
