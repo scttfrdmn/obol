@@ -72,6 +72,7 @@ Scheduling:
     CustomSlurmSettings:
       - JobSubmitPlugins: lua                 # GATE  (job_submit.lua from the slurm etc dir)
       - PrologSlurmctld: /usr/local/bin/obol-prolog-slurmctld.sh   # BIND (controller-side)
+      - PrologFlags: Alloc                     # run PrologSlurmctld at allocation, per job
       - JobCompType: jobcomp/script           # SETTLE (primary, controller-side)
       - JobCompLoc: /usr/local/bin/obol-jobcomp.sh
   SlurmQueues:

@@ -140,16 +140,76 @@ do_files() {
   log "installing prolog (BIND) + jobcomp (SETTLE) scripts"
   install -m 0755 "$SEAM/slurm/obol-jobcomp.sh" "$BINDIR/obol-jobcomp.sh"
   install -m 0755 "$SEAM/slurm/obol-prolog.sh"  "$BINDIR/obol-prolog.sh"
-  # PrologSlurmctld wrapper: slurmctld runs prologs with a minimal environment,
-  # so inject OBOL_BIN/OBOL_SOCKET before running the shared BIND script.
+  # PrologSlurmctld wrapper: slurmctld runs prologs with a MINIMAL environment
+  # (no OBOL_* vars, and scontrol is NOT on PATH). obol-prolog.sh needs scontrol
+  # to read the correlation token out of the job's admin_comment — without it,
+  # the BIND silently no-ops and the escrow is left unbound. So put the Slurm bin
+  # dir on PATH here alongside OBOL_BIN/OBOL_SOCKET. (Learned on a live cluster.)
+  local slurm_bin; slurm_bin="$(dirname "$SLURM_ETC")/bin"
+  [[ -d "$slurm_bin" ]] || slurm_bin="/opt/slurm/bin"
   cat > "$BINDIR/obol-prolog-slurmctld.sh" <<EOF
 #!/bin/bash
 export OBOL_BIN="$BINDIR/obol"
 export OBOL_SOCKET="$SOCKET"
+export PATH="$slurm_bin:\$PATH"
 exec "$BINDIR/obol-prolog.sh"
 EOF
   chmod 0755 "$BINDIR/obol-prolog-slurmctld.sh"
+
+  ensure_luasocket
   log "phase=files done — slurmctld can now load job_submit/lua"
+}
+
+# ensure_luasocket — the GATE shim (job_submit.lua) reaches obold via
+# obol_transport.lua, which needs a Lua socket backend: luasocket's socket.unix,
+# or a LuaJIT FFI. Stock ParallelCluster (alinux2023 / Slurm 25.11's embedded
+# Lua 5.4) ships NEITHER, and there is no lua-socket package / EPEL / luarocks —
+# so every gate fails "no usable socket backend". Build luasocket (incl. the
+# AF_UNIX submodule) from source when absent, and place it where the embedded
+# slurmctld interpreter's cpath will find it (/usr/lib64/lua/5.4). lua-devel +
+# gcc are present on the PC AMI. No-op if a backend already loads.
+ensure_luasocket() {
+  local luav="5.4"
+  if command -v lua >/dev/null 2>&1; then
+    luav="$(lua -e 'print(string.match(_VERSION,"%d+%.%d+"))' 2>/dev/null || echo 5.4)"
+  fi
+  local target="/usr/lib64/lua/${luav}/socket/unix.so"
+  if lua -e 'os.exit(pcall(require,"socket.unix") and 0 or 1)' 2>/dev/null; then
+    log "luasocket socket.unix already available"; return
+  fi
+  if [[ -f "$target" ]]; then
+    log "luasocket unix.so already installed at $target"; return
+  fi
+  if ! command -v gcc >/dev/null 2>&1 || [[ ! -e /usr/include/lua.h && ! -e "/usr/include/lua${luav}/lua.h" ]]; then
+    log "WARNING: no luasocket and cannot build it (need gcc + lua-devel) — the"
+    log "         GATE will fail closed. Install a Lua socket backend on this AMI."
+    return
+  fi
+  log "building luasocket socket.unix from source (Lua $luav)"
+  local ls_ver="3.1.0" d; d="$(mktemp -d)"
+  local inc="/usr/include"; [[ -e "/usr/include/lua${luav}/lua.h" ]] && inc="/usr/include/lua${luav}"
+  if curl -fsSL "https://github.com/lunarmodules/luasocket/archive/refs/tags/v${ls_ver}.tar.gz" -o "$d/ls.tgz" \
+     && tar -C "$d" -xzf "$d/ls.tgz"; then
+    ( cd "$d/luasocket-${ls_ver}/src"
+      install -d "/usr/lib64/lua/${luav}/socket" "/usr/share/lua/${luav}"
+      # core.so (socket base) + unix.so (AF_UNIX). unix.c needs the unixstream/
+      # unixdgram sources or it fails with undefined unixstream_open.
+      gcc -O2 -fPIC -I"$inc" -shared \
+        luasocket.c timeout.c buffer.c io.c auxiliar.c options.c \
+        inet.c usocket.c except.c select.c tcp.c udp.c \
+        -o "/usr/lib64/lua/${luav}/socket/core.so" 2>/dev/null || true
+      gcc -O2 -fPIC -I"$inc" -shared \
+        unix.c unixstream.c unixdgram.c buffer.c io.c timeout.c usocket.c auxiliar.c options.c \
+        -o "$target" 2>/dev/null || true
+      install -m0644 socket.lua "/usr/share/lua/${luav}/socket.lua" 2>/dev/null || true
+    )
+  fi
+  rm -rf "$d"
+  if lua -e 'package.cpath="/usr/lib64/lua/'"${luav}"'/?.so;"..package.cpath; os.exit(pcall(require,"socket.unix") and 0 or 1)' 2>/dev/null; then
+    log "luasocket socket.unix built OK at $target"
+  else
+    log "WARNING: luasocket build did not produce a loadable socket.unix — GATE may fail closed"
+  fi
 }
 
 # ---------------------------------------------------------------------------
@@ -178,7 +238,17 @@ EOF
     log "keeping existing /etc/obol/obold.json"
   fi
 
-  log "installing obold.service"
+  # The GATE shim runs INSIDE slurmctld, which runs as the 'slurm' user on
+  # ParallelCluster. obold's socket is created root-owned, and connect(2) on a
+  # Unix socket needs WRITE permission — which 'slurm' lacks on a 0755 socket, so
+  # every gate fails "budget daemon unreachable". Group the socket to 'slurm' and
+  # make it group-writable so slurmctld can connect. (Learned on a live cluster;
+  # a future obold -socket-group/-socket-mode flag would make this a daemon
+  # concern rather than an ExecStartPost.)
+  local sockgrp="slurm"
+  getent group "$sockgrp" >/dev/null 2>&1 || sockgrp="root"
+
+  log "installing obold.service (socket group: $sockgrp)"
   install -d -m 0750 "$STATE_DIR"
   cat > /etc/systemd/system/obold.service <<EOF
 [Unit]
@@ -188,6 +258,8 @@ Before=slurmctld.service
 
 [Service]
 ExecStart=$BINDIR/obold -socket $SOCKET -state-dir $STATE_DIR -config /etc/obol/obold.json
+# Let the slurmctld user (which runs the GATE shim) connect to the socket.
+ExecStartPost=/bin/sh -c 'for i in \$(seq 1 50); do [ -S "$SOCKET" ] && break; sleep 0.1; done; chgrp $sockgrp "$SOCKET" && chmod 0660 "$SOCKET"'
 Restart=on-failure
 RestartSec=2s
 RuntimeDirectory=obol

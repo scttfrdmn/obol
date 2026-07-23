@@ -106,10 +106,65 @@ per-partition `fail_closed` table in `seam/lua/job_submit.lua` to match your que
 names before staging the release (or bake a patched seam via `--source`). See
 [`docs/operations.md`](../../docs/operations.md#fail-open-vs-fail-closed-what-happens-if-obold-is-down).
 
+## Verified on a live cluster
+
+The full lifecycle was run end to end on a real ParallelCluster (PC 3.15.1,
+`alinux2023`, **Slurm 25.11**), and it works:
+
+- **GATE** — a funded `sbatch` escrowed its projected cost (60 units for a 60 s job),
+  balance debited, token stamped into `admin_comment`.
+- **BIND** — `PrologSlurmctld` bound the token to the job id at allocation (a `start`
+  ledger entry).
+- **SETTLE** — `jobcomp/script` billed the actual 21 s runtime and refunded the tail;
+  **conservation held** (`sum 100000, B0 100000`).
+- **Reject** — an unfundable job was rejected at submit (`obol: job rejected —
+  insufficient budget`), nothing escrowed.
+
+Getting there surfaced four things a stock PC AMI needs, all now handled by
+`install-obol.sh` (or flagged below):
+
+1. **Files before slurmctld** — the `OnNodeStart`/`OnNodeConfigured` phase split
+   (see the ordering note above). Without it the head-node bootstrap fails.
+2. **A Lua socket backend** — stock PC (Slurm 25.11's embedded Lua 5.4) ships no
+   luasocket, no LuaJIT FFI, and no `lua-socket` package / EPEL / luarocks, so the
+   GATE fails "no usable socket backend". `install-obol.sh` builds luasocket
+   (incl. the AF_UNIX submodule) from source using the AMI's `gcc` + `lua-devel`,
+   into `/usr/lib64/lua/<ver>/socket/`.
+3. **`scontrol` on the prolog's PATH** — slurmctld runs `PrologSlurmctld` with a
+   minimal env; `obol-prolog.sh` needs `scontrol` to read the token from
+   `admin_comment`, or BIND silently no-ops. The generated wrapper adds the Slurm
+   `bin` dir to PATH.
+4. **Socket group for the `slurm` user** — slurmctld runs as `slurm`; connecting to
+   the root-owned socket needs it group-writable. The systemd unit `chgrp slurm` +
+   `chmod 0660`s the socket on start.
+
+## State durability (read this)
+
+`obold`'s state dir is **real money state** and the head node's root volume is
+**ephemeral across head-node replacement**. Put `--state-dir` on the cluster's
+**shared filesystem** (EFS/FSx, mounted via `SharedStorage` — `/shared/obol` in the
+sample). A replacement head node recovers by replaying the WAL from that directory.
+
+`obold` is a **single writer** — exactly one running `obold` per state dir. On a
+single-head-node cluster that's automatic; the risk is only a replacement head node
+starting while an old one still writes. See
+[`docs/operations.md`](../../docs/operations.md#recovery-after-failure).
+
+## Fail-open vs. fail-closed
+
+ParallelCluster queues are cloud/rented compute, so they should **fail closed** — if
+`obold` is unreachable at submit, reject rather than allow ungated spend. Set the
+per-partition `fail_closed` table in `seam/lua/job_submit.lua` to match your queue
+names before staging the release (or bake a patched seam via `--source`). See
+[`docs/operations.md`](../../docs/operations.md#fail-open-vs-fail-closed-what-happens-if-obold-is-down).
+
 ## Open items
 
-The feasibility doc tracks what a production rollout still needs to prove: head-node-
+Beyond the four handled above, a production rollout should still prove: head-node-
 replacement fencing (single writer), that `update-cluster` re-runs the action and
 preserves `CustomSlurmSettings`, EFS/FSx `fdatasync` durability under `-sync true`,
-and the burst `site_factor` plugin on PC. None are blockers for a GATE+SETTLE
-deployment.
+the burst `site_factor` plugin on PC, and obol's seam against **Slurm 25.11**
+(outside the currently tested 22.05/23.11/24.05 set — it worked in this run, but
+isn't in CI). Two of the four fixes above are better as **daemon features** than
+install-time workarounds — a `-socket-group`/`-socket-mode` flag on `obold`, and
+bundling/locating a Lua transport backend — tracked as follow-up issues.

@@ -16,12 +16,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   BIND re-home below, and a head-node-replacement drill. Documents the
   confirmed-vs-unknown split and the recommended attachment model.
 - `deploy/parallelcluster/` — a reproducible bootstrap bundle for running obol on
-  AWS ParallelCluster (#131): `install-obol.sh` (an `OnNodeConfigured` custom action
-  that installs the binaries + Lua seam + prolog/jobcomp, writes the obold systemd
-  unit + config, starts obold, and reconfigures slurmctld), a sample `cluster.yaml`
-  that carries the seam directives via ParallelCluster's `CustomSlurmSettings`, and a
-  README. The release archive now also bundles the seam + this deploy dir so a
-  release is self-contained (goreleaser `archives.files`).
+  AWS ParallelCluster (#131): a **phase-aware** `install-obol.sh` (`--phase files` at
+  `OnNodeStart` lays the seam down before slurmctld; `--phase daemon` at
+  `OnNodeConfigured` starts obold), a sample `cluster.yaml` carrying the seam via
+  `CustomSlurmSettings`, and a README. The release archive now also bundles the seam +
+  this deploy dir so a release is self-contained (goreleaser `archives.files`).
+  **Validated end to end on a live cluster** (PC 3.15.1, alinux2023, Slurm 25.11):
+  GATE→BIND→SETTLE with conservation intact, and unfunded-job rejection. The live run
+  surfaced four stock-AMI gaps the installer now handles — install order (files
+  before slurmctld), building a Lua socket backend from source (no luasocket/FFI on
+  the AMI), `scontrol` on the prolog PATH, and group-writable socket for the `slurm`
+  user — plus two follow-up daemon/seam issues (#136 `obold -socket-group`, #137 a
+  robust Lua transport backend).
 
 ### Changed
 - ParallelCluster attachment model reflects how PC actually manages Slurm config:
