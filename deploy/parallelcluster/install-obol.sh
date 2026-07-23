@@ -165,9 +165,9 @@ EOF
 # or a LuaJIT FFI. Stock ParallelCluster (alinux2023 / Slurm 25.11's embedded
 # Lua 5.4) ships NEITHER, and there is no lua-socket package / EPEL / luarocks —
 # so every gate fails "no usable socket backend". Build luasocket (incl. the
-# AF_UNIX submodule) from source when absent, and place it where the embedded
-# slurmctld interpreter's cpath will find it (/usr/lib64/lua/5.4). lua-devel +
-# gcc are present on the PC AMI. No-op if a backend already loads.
+# AF_UNIX submodule) from source when absent, into /usr/lib64/lua/<ver> — one of
+# the dirs job_submit.lua's cpath searches (it also searches /usr/local/lib/lua,
+# #137). lua-devel + gcc are present on the PC AMI. No-op if a backend loads.
 ensure_luasocket() {
   local luav="5.4"
   if command -v lua >/dev/null 2>&1; then

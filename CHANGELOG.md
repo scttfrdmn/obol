@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- The GATE shim (`seam/lua/job_submit.lua`) now searches `/usr/local/lib/lua/<ver>`
+  for luasocket's C modules and honors `OBOL_LUA_CPATH` for extra patterns (#137).
+  A luasocket built from source (the fallback on managed hosts without a
+  `lua-socket` package — e.g. AWS ParallelCluster) installs to `/usr/local/lib`,
+  which the shim's cpath previously omitted, so `socket.unix` wouldn't load and
+  every gate failed "no usable socket backend". Also adds the 5.3 `/usr/lib` and
+  `/usr/local/lib` dirs. (The deeper "don't assume a Lua socket backend at all"
+  work remains open under #137.)
+
 ### Added
 - `obold -socket-group` / `-socket-mode` (#136): set the listen socket's group
   (name or gid) and octal mode at listen time, so a **non-root slurmctld** (e.g.
