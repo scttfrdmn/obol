@@ -30,3 +30,4 @@
 - { name: "slurm:gen1-2205", color: "006b75", description: "Slurm 22.05 (Rocky 8)" }
 - { name: "slurm:gen2-2311", color: "006b75", description: "Slurm 23.11" }
 - { name: "slurm:gen3-2405", color: "006b75", description: "Slurm 24.05" }
+- { name: "slurm:managed-2511", color: "006b75", description: "Slurm 25.11 (AWS PCS / ParallelCluster)" }

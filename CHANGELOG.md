@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Slurm 25.11 CI coverage** — a `managed` generation (Rocky 9, Slurm 25.11.1)
+  added to the multi-gen tier (`test/docker/multigen_test.go`), covering the version
+  AWS PCS and ParallelCluster ship (a live PC ran the seam on 25.11.4, #131) but that
+  was outside obol's tested 22.05/23.11/24.05 set. A new `integ-multigen` GitHub
+  Actions workflow runs the multi-gen seam tests **weekly** and on **manual dispatch**
+  (defaulting to the `managed` gen) — the build compiles Slurm from source (~10-20
+  min/image), so it deliberately does not run on every PR.
+
 ### Changed
 - The GATE shim (`seam/lua/job_submit.lua`) now searches `/usr/local/lib/lua/<ver>`
   for luasocket's C modules and honors `OBOL_LUA_CPATH` for extra patterns (#137).

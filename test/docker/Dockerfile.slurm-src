@@ -21,7 +21,7 @@
 #
 # Build args (set per generation by the test harness / make target):
 #   BASE_IMAGE     e.g. rockylinux:8 | rockylinux:9 | quay.io/rockylinux/rockylinux:10
-#   SLURM_VERSION  e.g. 22.05.11 | 23.11.10 | 24.05.5
+#   SLURM_VERSION  e.g. 22.05.11 | 23.11.10 | 24.05.5 | 25.11.1 (AWS PCS/PC target)
 #   ENABLE_CRB     "crb" (Rocky 9/10) or "powertools" (Rocky 8) — the repo that
 #                  carries the -devel packages.
 #

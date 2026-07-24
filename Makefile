@@ -25,7 +25,7 @@ integ-docker: ## build the single-node Slurm image and run the containerized sea
 	GOOS=linux GOARCH=$(shell go env GOARCH) go build -o test/docker/bin/obol  ./cmd/obol
 	go test -tags=docker_integration -count=1 -v -timeout 15m ./test/docker/
 
-integ-docker-multigen: ## build Slurm from source per burstlab generation (22.05/23.11/24.05) and run the seam tests; OBOL_INTEG_GENS=gen2 to pick one. SLOW (~10-20 min/image)
+integ-docker-multigen: ## build Slurm from source per generation (22.05/23.11/24.05 + managed 25.11) and run the seam tests; OBOL_INTEG_GENS=gen2 to pick one. SLOW (~10-20 min/image)
 	@command -v docker >/dev/null 2>&1 || { echo "integ-docker-multigen: docker not found; skipping"; exit 0; }
 	@mkdir -p test/docker/bin
 	GOOS=linux GOARCH=$(shell go env GOARCH) go build -o test/docker/bin/obold ./cmd/obold
