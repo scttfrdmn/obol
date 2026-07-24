@@ -395,3 +395,11 @@ Once the fork is chosen, the buildable work is:
 None of this touches the money kernel's invariants
 ([`../CLAUDE.md`](../CLAUDE.md)) — Option B adds a *derived* projection, not a new
 money path. Tracked under the **AWS PCS attachment** milestone.
+
+> **Decision (project owner):** **A first, design B.** Ship the advisory `cli_filter`
+> escrow (labeled advisory), then design the limit projector as the hard-enforcement
+> upgrade. The sequenced work is tracked as issues under the AWS PCS attachment
+> milestone: off-host transport + identity (shared prerequisite), the `integ-pcs`
+> tier, the Option A cli_filter wrapper + Epilog/slurmdbd SETTLE, and an Option B
+> design note (the lossy-cap-vs-exact-escrow question for the kernel owner) — plus
+> AWS feedback asking for a controller-side gate hook.
