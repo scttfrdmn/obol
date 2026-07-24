@@ -18,7 +18,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   BIND→Prolog, SETTLE→Epilog/slurmdbd, obold on a customer login node), the
   load-bearing **enforcement-integrity** open question (a client-side gate has no
   controller-side backstop on PCS), and the confirmed-vs-unknown split. The money
-  kernel is unaffected.
+  kernel is unaffected. Also captures that the GATE transport is *simpler* on PCS
+  (a `cli_filter` runs off the scheduler lock, so it just shells out to `obol gate` —
+  no Lua socket backend, reframing #137), the coupled off-host-transport + identity
+  change (a TCP `obold` peer has no `SO_PEERCRED`), and a **"What obol would want from
+  PCS"** wishlist (a controller-side gate hook, a completion event, a start hook) that
+  would turn the caveated gate into a hard one.
 
 ### Changed
 - README/docs cleanup: removed the README Branding section; the quickstart and

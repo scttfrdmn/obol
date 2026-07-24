@@ -150,11 +150,20 @@ completion feed (#13) becomes the more robust SETTLE path on PCS specifically.
 The single biggest structural change: **`obold` cannot run next to `slurmctld`**
 because there is no customer access to the managed controller. It runs on a
 customer-owned login node. Implications to work through (❓):
-- The seam's socket transport (`obol_transport.lua`, today a **local** Unix socket)
-  must reach `obold` from wherever `cli_filter`/prolog/epilog run. If submits happen
-  on the same login node as `obold`, a local UDS still works; if submits/prologs run
-  on compute nodes, the transport needs a network path (obol's transport is
-  UDS-only today — this is a transport feature, not just config).
+- **The transport is simpler on PCS than on the controller, not harder.** obol's
+  in-process Lua socket transport (`obol_wire.lua` + `obol_transport.lua`, needing
+  luasocket/FFI) exists *only* to keep the `job_submit` GATE off the slurmctld
+  scheduler lock (SEAM_DESIGN §1: must not fork on the lock). BIND and SETTLE already
+  just exec the `obol` binary. On PCS the GATE is a **`cli_filter/lua`** that runs
+  **client-side in the user's `sbatch`, on no lock** — so it can simply **shell out to
+  `obol gate`** like BIND/SETTLE do, with no Lua socket backend at all. This is the
+  primary PCS path and the reason issue #137 is reframed as "add a shell-out
+  transport fallback" rather than "ship a Lua socket backend."
+- **But the CLI must reach `obold` across hosts.** If the submit login node isn't
+  where `obold` runs, `obol gate` needs `--addr host:port` against an `obold` **TCP**
+  listener (both are UDS-only today). This is a real code change — and it collides
+  with enforcement/identity below (a TCP peer has no `SO_PEERCRED`), so transport and
+  authorization are **one** decision on PCS, not two.
 - State durability moves to the login node's storage (EBS or shared FS), same
   single-writer caveat as the ParallelCluster case
   ([`feasibility-parallelcluster.md`](feasibility-parallelcluster.md)).
@@ -216,9 +225,13 @@ gives on self-managed Slurm. That caveat must be stated honestly to any PCS oper
 1. **Enforcement integrity** (above) — can the client-side gate be bypassed, and does
    pairing with an allowlisted hard limit (QOS/association/TRES) close it? This is the
    feasibility-defining unknown.
-2. **`obold` off-controller transport** — obol's Lua transport is **local-UDS-only**
-   today; a login-node `obold` reached from compute-node prolog/epilog needs a network
-   transport. Scope of that change.
+2. **`obold` off-host transport + identity.** The GATE itself is easy on PCS
+   (`cli_filter` shells out to `obol gate` — no Lua socket backend needed, #137). The
+   open piece is reaching a login-node `obold` when the submit/prolog/epilog runs
+   elsewhere: that needs a **TCP** listener (obold + CLI are UDS-only today), and a
+   TCP peer has **no `SO_PEERCRED`**, so the admin/funding-source authorization that
+   the socket identity provides today must move onto an explicit authenticated
+   channel (token/mTLS). Transport and authorization are the same change.
 3. **`admin_comment` writability from `cli_filter`** on PCS Slurm 25.11 for the
    correlation token, or a fallback carrier.
 4. **SETTLE via Epilog vs. slurmdbd feed** — which is robust on PCS given no jobcomp
@@ -228,6 +241,46 @@ gives on self-managed Slurm. That caveat must be stated honestly to any PCS oper
 6. **PCS Slurm version** — docs reference 24.11 / 25.05 / 25.11; obol is tested on
    22.05 / 23.11 / 24.05. The 25.x line is **outside obol's current tested set** and
    needs a compatibility pass (the multi-gen tier extended to 25.x).
+
+---
+
+## What obol would want from PCS, ideally
+
+Everything above is obol adapting to PCS as it exists today. This section is the
+inverse: the short list of things AWS PCS could expose that would let obol be a
+**clean, hard budget gate** on a managed controller instead of a "gate with a
+caveat." It doubles as concrete feedback to the PCS team. Roughly in priority order:
+
+1. **A controller-side submit gate hook — the one thing that matters most.**
+   Allowlist `JobSubmitPlugins=lua` (even a constrained/sandboxed form), *or* offer a
+   first-class "admission webhook": before a job is accepted, PCS calls a
+   customer-provided endpoint that can reject with a message. Either makes the gate
+   **unbypassable** — the whole enforcement-integrity question disappears, because the
+   decision no longer lives in the user's client. This is the difference between a
+   hard gate and an advisory one.
+2. **A settlement / job-completion event.** Allowlist `JobCompType=jobcomp/script` (or
+   `jobcomp/kafka`/HTTP, or an EventBridge job-lifecycle event carrying jobid + final
+   state + elapsed). obol needs a reliable "job ended, here's the actual runtime" feed
+   to settle escrows; today it must lean on `Epilog` (compute-node, skipped on node
+   failure) or scrape slurmdbd.
+3. **`PrologSlurmctld` (controller-side start hook), or the job's `admin_comment`
+   readable/writable from `cli_filter`.** obol correlates the submit-time reservation
+   to the running job via a token in `admin_comment`. A controller-side start hook (as
+   on ParallelCluster) or a guarantee that `cli_filter` can stamp/read `admin_comment`
+   on PCS's Slurm makes BIND clean; otherwise the token needs a fallback carrier.
+4. **A documented, private endpoint to reach a customer sidecar.** obol's daemon holds
+   the money state and wants a stable, authenticated way for the gate/settle hooks to
+   call it (a per-cluster private DNS name + a workload-identity token, say). This
+   removes the "TCP listener with no `SO_PEERCRED`" problem — the identity comes from
+   the platform, not the socket.
+5. **Confirm the submit surface.** A statement (or setting) that jobs can only enter
+   via PCS-managed login nodes that carry the `cli_filter` — so even without (1), the
+   bypass surface is closed by construction.
+
+(1) alone would make PCS a first-class obol target. (1)+(2)+(3) would make it
+*equivalent* to a self-managed cluster. Absent (1), obol on PCS is the paired model —
+`cli_filter` for UX/reservation + an allowlisted hard QOS/association limit for
+enforcement — described above.
 
 ---
 
@@ -243,10 +296,14 @@ PCS is **feasible but not free**. Sequence the investigation as:
    `integ-pcs` tier analogous to `integ-pcluster`, honoring the same no-destructive
    rule — attach to an existing cluster, never `create-cluster`), proving GATE-reject
    and the token carrier.
-3. **Add off-controller transport to the seam** (unknown #2) — the one clear code
-   change obol needs regardless of the enforcement outcome.
+3. **Add the off-host transport + identity** (unknown #2): a TCP `obold` listener
+   with an authenticated channel (the GATE itself just shells out to `obol gate`, so
+   no Lua socket backend is needed — #137). The one clear code change regardless of
+   the enforcement outcome.
 4. **Re-home SETTLE** onto Epilog and/or the slurmdbd feed; validate on PCS Slurm
    25.x (unknowns #4, #6).
+5. **In parallel, ask AWS for the hooks above** ("What obol would want from PCS") —
+   a controller-side gate hook would collapse steps 1–2 into a clean hard gate.
 
 None of this touches the money kernel — the invariants
 ([`../CLAUDE.md`](../CLAUDE.md)) are unaffected; this is entirely about *where the
