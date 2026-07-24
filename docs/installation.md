@@ -109,6 +109,8 @@ wins, the config only fills gaps.
 | `-socket` | `/run/obol/obold.sock` | Unix listen socket |
 | `-socket-group` | *(none)* | group (name or gid) to own the socket so a non-root slurmctld can connect (e.g. `slurm`); empty leaves ownership unchanged |
 | `-socket-mode` | *(none)* | octal mode for the socket, e.g. `0660` to let the socket group connect; empty leaves the listen default |
+| `-listen` | *(none)* | additional **TCP** listen address (`host:port`) for off-host clients (e.g. a PCS login-node seam); requires `-auth-token-file`. Empty = Unix socket only |
+| `-auth-token-file` | *(none)* | file holding the bearer token TCP clients must present (required with `-listen`); read once at start |
 | `-state-dir` | `/var/lib/obol` | per-account WAL + snapshot directory |
 | `-config` | *(none)* | multi-account config JSON; omit to use the single-budget flags below |
 | `-sync` | `true` | `fdatasync` the WAL on every append. **Leave true in production** — false trades durability for throughput (tests only) |
@@ -182,6 +184,42 @@ socket, because `connect(2)` needs *write* permission. Run `obold` with
 lifecycle and send read verbs — **mutating verbs stay gated on `SO_PEERCRED`**, which
 the socket mode can't spoof, so grouping the socket to `slurm` does not make `slurm`
 an admin.
+
+### Off-host (TCP) clients — the auth token (#144)
+
+The Unix socket only serves clients on the same host. When the seam runs on a
+*different* host from `obold` — e.g. AWS PCS, where `obold` lives on a customer login
+node and a `cli_filter` submit hook runs elsewhere — start `obold` with a TCP listener
+**and** a bearer token:
+
+```
+obold -config /etc/obol/obold.json \
+      -listen 0.0.0.0:7817 -auth-token-file /etc/obol/tcp.token
+```
+
+Generate the token with `openssl rand -hex 32 > /etc/obol/tcp.token` (min 16 chars).
+The seam's `obol` CLI reaches it via environment (no new flags):
+
+```
+OBOL_ADDR=obold-host:7817
+OBOL_AUTH_TOKEN_FILE=/etc/obol/tcp.token   # or OBOL_AUTH_TOKEN=<token>
+```
+
+**The TCP path's authorization boundary is deliberately narrower than the socket's.**
+A TCP peer has no kernel-verified `SO_PEERCRED` identity, so:
+
+- A valid token is required for **any** TCP request (constant-time compared); no token
+  or a wrong token is refused.
+- The token authorizes only the **gate/bind/settle lifecycle and read verbs** — what a
+  submit/prolog/epilog hook needs.
+- **Admin mutating verbs (`topup`, `transfer`, `create`, `attach`, `set-*`,
+  `reconcile`) are refused over TCP** and must be run from a local socket connection.
+  This caps a leaked token's blast radius: it can gate and settle jobs, but it can't
+  move money or reconfigure accounts.
+
+Protect the token file (`0600`, owned by the obold user) and restrict the TCP port
+with a security group / firewall to the hosts that run the seam. Treat the token as a
+credential; rotate it by replacing the file and restarting `obold`.
 
 ---
 

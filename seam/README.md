@@ -58,6 +58,13 @@ OBOL_SHELLOUT=1                    # 1 (default): fall back to exec'ing `obol ga
                                    # when no in-process socket backend loads (#137);
                                    # 0 disables the fallback (then a missing backend
                                    # => fail-closed policy applies)
+OBOL_ADDR=                         # host:port of a remote obold TCP listener (#144),
+                                   # for off-host seams (e.g. PCS). Empty = the local
+                                   # Unix socket. When set, the CLI (and thus the
+                                   # shell-out GATE) reaches obold over TCP.
+OBOL_AUTH_TOKEN=                   # bearer token for OBOL_ADDR, or
+OBOL_AUTH_TOKEN_FILE=              # a file to read it from (must match obold's
+                                   # -auth-token-file). Required when OBOL_ADDR is set.
 ```
 
 **jobcomp runs with a minimal environment.** slurmctld invokes the `jobcomp/script`

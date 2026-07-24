@@ -26,3 +26,14 @@ func peerCredOf(conn net.Conn) PeerCred {
 	}
 	return readPeerCred(uc) // platform-specific (peercred_linux.go / _other.go)
 }
+
+// isLocalConnFunc reports whether a connection is a local Unix-socket peer (as
+// opposed to a TCP peer over the off-host transport, #144). A package var so
+// tests can force the remote path without a real TCP listener. This is DISTINCT
+// from PeerCred.Available: a Unix conn is local even on a platform that can't
+// read SO_PEERCRED (e.g. macOS dev), so the TCP auth-token gate must key on the
+// connection TYPE, not on cred availability.
+var isLocalConnFunc = func(conn net.Conn) bool {
+	_, ok := conn.(*net.UnixConn)
+	return ok
+}

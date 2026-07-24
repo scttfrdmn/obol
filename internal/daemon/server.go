@@ -15,6 +15,7 @@ package daemon
 
 import (
 	"crypto/rand"
+	"crypto/subtle"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -41,6 +42,12 @@ type Server struct {
 	weights  Weights          // TRES->rate; zero-value = flat-rate (use each budget's C)
 	nodeCost *NodeCost        // node-type rates (issue #65); nil/empty = not configured
 	ident    identityResolver // uid -> user/groups, only used for restricted accounts
+
+	// authToken gates the off-host TCP transport (#144). Empty = no TCP auth
+	// configured (TCP peers, if any, are refused). When set, a TCP peer must send
+	// a matching wire Auth token to be served; a local Unix-socket peer is
+	// authorized by SO_PEERCRED and ignores this entirely.
+	authToken string
 
 	mu          sync.Mutex                // guards jobToToken, tokenBudget, tokenLegs, tokenArrayN
 	jobToToken  map[string]string         // Slurm jobid -> (master) escrow token
@@ -103,6 +110,10 @@ func NewWithRegistry(reg *Registry, now Clock, w Weights) *Server {
 // a partition's worst-case node rate and BIND reprices to the actual node.
 func (s *Server) SetNodeCost(nc *NodeCost) { s.nodeCost = nc }
 
+// SetAuthToken sets the bearer token required of off-host (TCP) clients (#144).
+// Local Unix-socket peers are unaffected (they authorize via SO_PEERCRED).
+func (s *Server) SetAuthToken(tok string) { s.authToken = tok }
+
 // SweepUnbound runs the unbound-token TTL janitor (#15) once across all accounts,
 // using the server's own clock for `now`. Returns the count reconciled. The
 // daemon drives this on a ticker (cmd/obold); exposed as a method so `now` stays
@@ -135,18 +146,69 @@ func (s *Server) handleConn(conn net.Conn) {
 	// Read the kernel-verified peer identity once per connection; management verbs
 	// authorize against it (not the spoofable wire uid).
 	peer := peerCredFunc(conn)
+	// Classify by connection TYPE, not by peer-cred availability: a Unix-socket
+	// peer is local even where SO_PEERCRED can't be read (e.g. macOS dev). A TCP
+	// peer (the off-host transport, #144) must authenticate with the bearer token
+	// and is barred from admin verbs — there is no kernel-verified identity for it.
+	remote := !isLocalConnFunc(conn)
 	for {
 		req, err := wire.ReadFrame(conn)
 		if err != nil {
 			return // EOF or protocol error: drop the connection
 		}
-		resp := s.dispatch(req, peer)
+		resp := s.dispatchTransport(req, peer, remote)
 		if resp == nil {
 			continue
 		}
 		if err := wire.WriteFrame(conn, resp); err != nil {
 			return
 		}
+	}
+}
+
+// dispatchTransport applies the off-host-transport gate (#144), then dispatches.
+// For a remote (TCP) peer it requires a valid bearer token and refuses admin
+// mutating verbs (no SO_PEERCRED to authorize them); a local peer is unaffected.
+func (s *Server) dispatchTransport(req *wire.Frame, peer PeerCred, remote bool) *wire.Frame {
+	if !remote {
+		return s.dispatch(req, peer)
+	}
+	// Remote peer: constant-time token check. No token configured => TCP is not
+	// enabled for auth => refuse everything.
+	if s.authToken == "" || subtle.ConstantTimeCompare([]byte(req.Auth), []byte(s.authToken)) != 1 {
+		return rejectFrame(req.MsgKind, "unauthorized: valid auth token required over TCP")
+	}
+	if isAdminKind(req.MsgKind) {
+		return rejectFrame(req.MsgKind, "admin verbs require a local connection (no verifiable identity over TCP)")
+	}
+	// Authorized remote peer: dispatch with an empty PeerCred. Read/lifecycle verbs
+	// don't need peer identity; admin verbs are already refused above.
+	return s.dispatch(req, peer)
+}
+
+// isAdminKind reports whether a request kind is an admin mutating verb — the ones
+// requireAdmin gates on SO_PEERCRED, which a TCP peer can't provide (#144).
+func isAdminKind(k wire.Kind) bool {
+	switch k {
+	case wire.KindTopUp, wire.KindTransfer, wire.KindCreate, wire.KindAttach,
+		wire.KindSetRate, wire.KindSetWindow, wire.KindSetBurst, wire.KindReconcile:
+		return true
+	}
+	return false
+}
+
+// rejectFrame builds a rejecting response the CLIverb for this kind will actually
+// read: gate reads GateResp, topup reads TopUpResp, the other admin/ack verbs read
+// AckResp. Populating the matching field means the caller surfaces `reason` rather
+// than a generic "empty response".
+func rejectFrame(k wire.Kind, reason string) *wire.Frame {
+	switch k {
+	case wire.KindGate:
+		return &wire.Frame{MsgKind: k, GateResp: &wire.GateResponse{Allow: false, Reason: reason}}
+	case wire.KindTopUp:
+		return &wire.Frame{MsgKind: k, TopUpResp: &wire.TopUpResponse{OK: false, Reason: reason}}
+	default:
+		return &wire.Frame{MsgKind: k, AckResp: &wire.AckResponse{OK: false, Reason: reason}}
 	}
 }
 
