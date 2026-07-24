@@ -8,6 +8,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `docs/feasibility-pcs.md`: a feasibility write-up for running obol on AWS PCS
+  (managed Slurm), grounded in the current (July 2026) PCS `SlurmCustomSetting`
+  allowlists. Conclusion: feasible **with a seam redesign** — PCS does not allowlist
+  `JobSubmitPlugins` (the GATE) or `JobCompType`/`JobCompLoc` (the SETTLE) and gives
+  no controller shell, but it **does** allowlist `CliFilterPlugins=cli_filter/lua`
+  (a client-side submit hook that can reject jobs), `Prolog`, `Epilog`, and
+  `AccountingStorage*`. Documents the re-homed attachment model (GATE→cli_filter,
+  BIND→Prolog, SETTLE→Epilog/slurmdbd, obold on a customer login node), the
+  a **"What obol would want from PCS"** wishlist, and the confirmed-vs-unknown split.
+  The load-bearing **enforcement-integrity** question is now **resolved** (per AWS's
+  own docs): a `cli_filter` gate *"can be easily bypassed by any user"* and PCS does
+  not support the controller-side `job_submit` plugin, so a submit gate on PCS is
+  **advisory**, not hard — the only enforceable lever is the accounting/QOS layer.
+  This forks obol-on-PCS into **Option A** (advisory `cli_filter` escrow) vs.
+  **Option B** (a hard *limit projector* onto QOS/association caps) — a product
+  decision to make before building. Also resolved since first draft: the GATE
+  transport is the shipped shell-out (#137); there is **no PCS job-lifecycle
+  EventBridge event** (so SETTLE is Epilog/slurmdbd); Slurm 25.11 is CI-covered
+  (#141). The money kernel is unaffected (Option B adds a *derived* projection, not a
+  new money path).
 - **GATE shell-out fallback (#137)** — when the shim has no in-process Lua socket
   backend (no luasocket, no LuaJIT FFI — the case on minimal managed AMIs like AWS
   ParallelCluster / PCS), `job_submit.lua` now falls back to exec'ing `obol gate`,
