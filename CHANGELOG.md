@@ -8,6 +8,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Off-host TCP transport + bearer-token auth (#144)** — `obold -listen host:port`
+  (with a required `-auth-token-file`) serves the wire protocol over TCP *alongside*
+  the Unix socket, so a seam on a different host can reach `obold` (the shared
+  prerequisite for AWS PCS, where `obold` runs on a login node and the `cli_filter`
+  hook runs elsewhere). The `obol` CLI selects TCP via environment — `OBOL_ADDR` +
+  `OBOL_AUTH_TOKEN`/`OBOL_AUTH_TOKEN_FILE` — so no verb grows a flag and the shell-out
+  GATE (#137) inherits it. **Authorization boundary:** a TCP peer has no
+  `SO_PEERCRED`, so it must present the token (constant-time compared) for any request
+  **and is barred from admin mutating verbs** (`topup`/`transfer`/`create`/`attach`/
+  `set-*`/`reconcile` require a local connection) — capping a leaked token to the
+  gate/bind/settle lifecycle + reads, never money movement. New optional `auth` wire
+  field (empty on the UDS path). The local Unix-socket path is unchanged.
 - `docs/feasibility-pcs.md`: a feasibility write-up for running obol on AWS PCS
   (managed Slurm), grounded in the current (July 2026) PCS `SlurmCustomSetting`
   allowlists. Conclusion: feasible **with a seam redesign** — PCS does not allowlist

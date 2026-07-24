@@ -445,6 +445,12 @@ type Frame struct {
 	Version int  `json:"v"`
 	MsgKind Kind `json:"k"`
 
+	// Auth is an optional bearer token, sent only by clients reaching obold over
+	// TCP (the off-host transport, #144). A local Unix-socket peer is authorized by
+	// its kernel-verified SO_PEERCRED identity and leaves this empty; a TCP peer has
+	// no peer-cred, so it must present this token to be served at all. Never logged.
+	Auth string `json:"auth,omitempty"`
+
 	// Requests (one populated per request frame).
 	Gate      *GateRequest      `json:"gate,omitempty"`
 	Bind      *BindRequest      `json:"bind,omitempty"`

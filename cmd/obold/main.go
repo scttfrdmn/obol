@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -35,6 +36,8 @@ func main() {
 	fs.StringVar(&cfg.sock, "socket", "/run/obol/obold.sock", "path to the Unix listen socket")
 	fs.StringVar(&cfg.sockGroup, "socket-group", "", "group (name or gid) to own the socket, so a non-root slurmctld can connect (e.g. slurm); empty leaves it unchanged")
 	fs.StringVar(&cfg.sockMode, "socket-mode", "", "octal mode for the socket, e.g. 0660 to allow the socket group to connect; empty leaves it at listen default")
+	fs.StringVar(&cfg.listen, "listen", "", "additional TCP listen address (host:port) for off-host clients, e.g. a PCS login-node seam (#144); requires -auth-token-file. Empty = Unix socket only")
+	fs.StringVar(&cfg.authTokenFile, "auth-token-file", "", "file holding the bearer token TCP clients must present (required with -listen); read once at start")
 	fs.StringVar(&cfg.dir, "state-dir", "/var/lib/obol", "budget state directory (per-account WAL + snapshot)")
 	fs.StringVar(&cfg.configPath, "config", "", "multi-account config (JSON); omit for the single-budget flags below")
 	fs.BoolVar(&cfg.sync, "sync", true, "fdatasync the WAL on every append (production: true)")
@@ -61,15 +64,16 @@ func main() {
 
 // config holds the parsed obold flags.
 type config struct {
-	sock, dir           string
-	sockGroup, sockMode string
-	configPath          string
-	sync, create        bool
-	rate, b0            int64
-	window              time.Duration
-	unboundTTL          time.Duration
-	sweepEvery          time.Duration
-	weights             daemon.Weights
+	sock, dir             string
+	sockGroup, sockMode   string
+	listen, authTokenFile string
+	configPath            string
+	sync, create          bool
+	rate, b0              int64
+	window                time.Duration
+	unboundTTL            time.Duration
+	sweepEvery            time.Duration
+	weights               daemon.Weights
 }
 
 // nowClock is the daemon's wall clock as epoch seconds, fed into transitions so
@@ -93,6 +97,19 @@ func run(cfg config) error {
 	}
 	srv.SetNodeCost(nc)
 
+	// Off-host TCP transport (#144): if -listen is set, load the required bearer
+	// token and hand it to the server before any listener accepts.
+	if cfg.listen != "" {
+		if cfg.authTokenFile == "" {
+			return fmt.Errorf("-listen requires -auth-token-file (TCP clients must authenticate)")
+		}
+		tok, err := readAuthToken(cfg.authTokenFile)
+		if err != nil {
+			return err
+		}
+		srv.SetAuthToken(tok)
+	}
+
 	if err := os.MkdirAll(filepath.Dir(cfg.sock), 0o750); err != nil {
 		return fmt.Errorf("socket dir: %w", err)
 	}
@@ -108,7 +125,18 @@ func run(cfg config) error {
 		return err
 	}
 
-	// Graceful shutdown: close the listener so Serve returns, then Close flushes.
+	// Optional TCP listener for off-host clients (#144). Same Serve loop; the
+	// server distinguishes TCP peers (no SO_PEERCRED) and requires the auth token.
+	var tcpLn net.Listener
+	if cfg.listen != "" {
+		tcpLn, err = net.Listen("tcp", cfg.listen)
+		if err != nil {
+			_ = ln.Close()
+			return fmt.Errorf("tcp listen %s: %w", cfg.listen, err)
+		}
+	}
+
+	// Graceful shutdown: close the listener(s) so Serve returns, then Close flushes.
 	sigc := make(chan os.Signal, 1)
 	signal.Notify(sigc, syscall.SIGINT, syscall.SIGTERM)
 	stop := make(chan struct{})
@@ -117,6 +145,9 @@ func run(cfg config) error {
 		log.Println("obold: shutting down")
 		close(stop)
 		_ = ln.Close()
+		if tcpLn != nil {
+			_ = tcpLn.Close()
+		}
 	}()
 
 	// Unbound-token TTL janitor (#15): periodically reclaim escrows minted at the
@@ -125,11 +156,35 @@ func run(cfg config) error {
 		go runJanitor(srv, cfg.unboundTTL, cfg.sweepEvery, stop)
 	}
 
-	log.Printf("obold %s serving on %s (state %s)", version, cfg.sock, cfg.dir)
+	if tcpLn != nil {
+		log.Printf("obold %s serving on %s + tcp %s (state %s)", version, cfg.sock, cfg.listen, cfg.dir)
+		go func() {
+			if serr := srv.Serve(tcpLn); serr != nil {
+				log.Printf("obold: tcp serve error: %v", serr)
+			}
+		}()
+	} else {
+		log.Printf("obold %s serving on %s (state %s)", version, cfg.sock, cfg.dir)
+	}
 	if err := srv.Serve(ln); err != nil {
 		return fmt.Errorf("serve: %w", err)
 	}
 	return nil
+}
+
+// readAuthToken loads and validates the TCP bearer token from a file (#144). The
+// token is the file's trimmed contents; it must be non-empty and reasonably long
+// so a short/blank file can't accidentally authorize everyone.
+func readAuthToken(path string) (string, error) {
+	b, err := os.ReadFile(path) //nolint:gosec // G304: operator supplies the path
+	if err != nil {
+		return "", fmt.Errorf("read auth-token-file: %w", err)
+	}
+	tok := strings.TrimSpace(string(b))
+	if len(tok) < 16 {
+		return "", fmt.Errorf("auth token in %s too short (need >= 16 chars; generate e.g. `openssl rand -hex 32`)", path)
+	}
+	return tok, nil
 }
 
 // runJanitor drives the unbound-token TTL sweep on a ticker until stop is closed.

@@ -183,6 +183,71 @@ func TestTransportErrorExitCode(t *testing.T) {
 	}
 }
 
+// newTCPDaemon starts an in-process obold on a TCP listener with an auth token
+// (#144) and returns the address and token.
+func newTCPDaemon(t *testing.T) (addr, token string) {
+	t.Helper()
+	dir := t.TempDir()
+	bd, err := budget.NewDurable(dir, 1, 100000, 0, 100000, false)
+	if err != nil {
+		t.Fatalf("NewDurable: %v", err)
+	}
+	srv := daemon.New(bd, func() budget.Seconds { return 1 })
+	token = "cli-tcp-token-0123456789abcdef"
+	srv.SetAuthToken(token)
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("tcp listen: %v", err)
+	}
+	go func() { _ = srv.Serve(ln) }()
+	t.Cleanup(func() { _ = ln.Close(); _ = bd.Close() })
+	return ln.Addr().String(), token
+}
+
+// TestCLIOverTCP drives the CLI against a remote obold via OBOL_ADDR + token
+// (#144): a gate succeeds with the token, and a mutating admin verb is refused
+// over TCP. --socket is still passed but ignored once OBOL_ADDR is set.
+func TestCLIOverTCP(t *testing.T) {
+	addr, token := newTCPDaemon(t)
+	t.Setenv("OBOL_ADDR", addr)
+	t.Setenv("OBOL_AUTH_TOKEN", token)
+
+	// gate works over TCP with the token.
+	code, out, errOut := run("/unused.sock", "gate", "--account", "lab", "--partition", "cloud", "--time-limit", "100")
+	if code != 0 {
+		t.Fatalf("gate over TCP exit %d, stderr=%q", code, errOut)
+	}
+	if !strings.HasPrefix(out, "allow ") {
+		t.Errorf("gate over TCP out = %q, want 'allow ...'", out)
+	}
+
+	// topup (admin) is refused over TCP — the daemon returns a not-OK ack, which
+	// the CLI surfaces as an error exit.
+	code, _, errOut = run("/unused.sock", "topup", "--account", "lab", "--amount", "100")
+	if code == 0 {
+		t.Errorf("topup over TCP: want nonzero exit, got 0")
+	}
+	if !strings.Contains(errOut, "local connection") {
+		t.Errorf("topup over TCP stderr = %q, want the local-connection refusal", errOut)
+	}
+}
+
+// TestCLIOverTCPNoToken confirms OBOL_ADDR without a token is a clean CLI error,
+// not a silent unauthenticated attempt.
+func TestCLIOverTCPNoToken(t *testing.T) {
+	addr, _ := newTCPDaemon(t)
+	t.Setenv("OBOL_ADDR", addr)
+	t.Setenv("OBOL_AUTH_TOKEN", "")
+	t.Setenv("OBOL_AUTH_TOKEN_FILE", "")
+	code, _, errOut := run("/unused.sock", "show", "--account", "lab")
+	if code == 0 {
+		t.Errorf("OBOL_ADDR without token: want nonzero exit")
+	}
+	if !strings.Contains(errOut, "no token") {
+		t.Errorf("stderr = %q, want a missing-token error", errOut)
+	}
+}
+
 // TestArrayGateVerb drives an array submission through the gate verb.
 func TestArrayGateVerb(t *testing.T) {
 	sock, bd := newDaemon(t)
