@@ -1,0 +1,51 @@
+name: integ-multigen
+
+# Builds Slurm from source per generation and runs the obol GATE→BIND→SETTLE seam
+# against a real slurmctld of that version (the docker_multigen tier). This is
+# SLOW — each image compiles Slurm (~10-20 min) — so it does NOT run on every PR.
+# It runs weekly and on manual dispatch, and defaults to the "managed" generation
+# (Slurm 25.11, the AWS PCS / ParallelCluster target, #131) which the fast CI
+# lane doesn't cover.
+
+on:
+  schedule:
+    - cron: "0 6 * * 1" # Mondays 06:00 UTC
+  workflow_dispatch:
+    inputs:
+      gens:
+        description: "Comma list of generations (gen1,gen2,gen3,managed) or blank for managed"
+        required: false
+        default: "managed"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: integ-multigen-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  multigen:
+    name: multigen (${{ github.event.inputs.gens || 'managed' }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: "1.26"
+          check-latest: true
+      # Stage the linux obold/obol binaries the images COPY in (matches the make
+      # target). The runner is amd64.
+      - name: build obol binaries
+        run: |
+          mkdir -p test/docker/bin
+          GOOS=linux GOARCH=amd64 go build -o test/docker/bin/obold ./cmd/obold
+          GOOS=linux GOARCH=amd64 go build -o test/docker/bin/obol  ./cmd/obol
+      - name: run multigen seam tests
+        working-directory: test/docker
+        env:
+          # Scheduled runs cover the managed (25.11) gen — the new CI coverage;
+          # dispatch can widen it. gen3 (Rocky 10) pulls from quay.io.
+          OBOL_INTEG_GENS: ${{ github.event.inputs.gens || 'managed' }}
+        run: go test -tags=docker_multigen -count=1 -v -timeout 90m ./...
