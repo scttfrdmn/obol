@@ -27,6 +27,13 @@ jobs:
         with:
           go-version: ${{ matrix.go }}
           check-latest: true
+      # The seam tests (seam/lua) cross-validate the Lua wire module and exercise
+      # the GATE shell-out fallback (#137) via a real lua interpreter; they SKIP
+      # without one. Install lua5.4 + luasocket so they actually run in CI rather
+      # than skip green. luasocket lets the wire cross-check use socket.unix; the
+      # shell-out test forces the in-process transport to fail regardless.
+      - name: install lua + luasocket
+        run: sudo apt-get update && sudo apt-get install -y lua5.4 lua-socket
       - name: gofmt check
         run: |
           diff=$(gofmt -s -l .)
