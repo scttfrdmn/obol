@@ -1,0 +1,100 @@
+# cluster.sample.yaml — an AWS ParallelCluster 3.x cluster wired for obol.
+#
+# This shows the two obol-specific pieces layered onto an otherwise ordinary
+# ParallelCluster config:
+#
+#   1. HeadNode.CustomActions — install-obol.sh runs in TWO phases:
+#        OnNodeStart  --phase files  : lays the binaries + Lua seam down BEFORE
+#                                      slurmctld starts. This ordering is required:
+#                                      ParallelCluster starts slurmctld during its
+#                                      own bootstrap, and with JobSubmitPlugins=lua
+#                                      in slurm.conf it fatals at startup if
+#                                      job_submit.lua isn't already present — which
+#                                      fails the whole head-node bootstrap.
+#        OnNodeConfigured --phase daemon : writes the obold config + systemd unit,
+#                                      starts obold, and reconfigures slurmctld
+#                                      (runs after shared storage is mounted).
+#
+#   2. Scheduling.SlurmSettings.CustomSlurmSettings — the slurm.conf directives
+#      that attach the seam. These MUST go here, not in a hand-edited slurm.conf:
+#      ParallelCluster manages slurm.conf and rewrites it on every update, so a
+#      manual edit is lost. CustomSlurmSettings is the supported, update-safe path
+#      (ParallelCluster >= 3.6.0).
+#
+# Note on the BIND step: obol's BIND normally runs as Prolog, but ParallelCluster
+# DENY-LISTS Prolog and Epilog in CustomSlurmSettings (it owns them for node
+# lifecycle). PrologSlurmctld is NOT deny-listed and runs on the head node — where
+# obold lives — so BIND attaches there. See docs/feasibility-parallelcluster.md.
+#
+# Replace every PLACEHOLDER_* before deploying.
+
+Region: PLACEHOLDER_REGION                 # e.g. us-west-2
+Image:
+  Os: rocky9                               # rocky8 / rocky9 / alinux2 all work
+
+HeadNode:
+  InstanceType: c5.large
+  Networking:
+    SubnetId: PLACEHOLDER_SUBNET_ID
+  Ssh:
+    KeyName: PLACEHOLDER_KEY_NAME
+  CustomActions:
+    # Phase 1 — lay the seam files down BEFORE slurmctld starts. Same script,
+    # --phase files. Must be OnNodeStart, not OnNodeConfigured (see header above).
+    OnNodeStart:
+      Script: s3://PLACEHOLDER_BUCKET/obol/install-obol.sh
+      Args:
+        - --phase
+        - files
+        - --release
+        - PLACEHOLDER_OBOL_RELEASE            # e.g. v0.14.0
+    # Phase 2 — start obold + reconfigure, after shared storage is mounted.
+    OnNodeConfigured:
+      Script: s3://PLACEHOLDER_BUCKET/obol/install-obol.sh
+      Args:
+        - --phase
+        - daemon
+        - --state-dir
+        - /shared/obol                        # on the shared FS, survives head-node replacement
+        - --config
+        - /shared/obol/obold.json             # your budgets (stage it into the bucket/FS)
+  Iam:
+    # The head node needs to read install-obol.sh (and obold.json) from S3.
+    S3Access:
+      - BucketName: PLACEHOLDER_BUCKET
+        EnableWriteAccess: false
+
+Scheduling:
+  Scheduler: slurm
+  SlurmSettings:
+    # The obol seam directives. ParallelCluster appends these to slurm.conf and
+    # keeps them across updates. None of these four are deny-listed.
+    CustomSlurmSettings:
+      - JobSubmitPlugins: lua                 # GATE  (job_submit.lua from the slurm etc dir)
+      - PrologSlurmctld: /usr/local/bin/obol-prolog-slurmctld.sh   # BIND (controller-side)
+      - PrologFlags: Alloc                     # run PrologSlurmctld at allocation, per job
+      - JobCompType: jobcomp/script           # SETTLE (primary, controller-side)
+      - JobCompLoc: /usr/local/bin/obol-jobcomp.sh
+  SlurmQueues:
+    - Name: cloud
+      # A cloud/rented queue → obol fails CLOSED here (set in job_submit.lua's
+      # fail_closed table): no ungated spend on real-money compute if obold is down.
+      ComputeResources:
+        - Name: cloud-c5
+          InstanceType: c5.large
+          MinCount: 0
+          MaxCount: 8
+      Networking:
+        SubnetIds:
+          - PLACEHOLDER_SUBNET_ID
+
+SharedStorage:
+  # obol's state dir is real money state; put it on durable shared storage so it
+  # survives head-node replacement. A replacement head node's obold recovers by
+  # replaying the WAL from the same directory. EFS is simplest; FSx for Lustre is
+  # faster. Mount point /shared matches the --state-dir arg above.
+  - Name: obol-shared
+    StorageType: Efs
+    MountDir: /shared
+    EfsSettings:
+      Encrypted: true

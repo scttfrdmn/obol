@@ -17,15 +17,80 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `AccountingStorage*`. Documents the re-homed attachment model (GATE→cli_filter,
   BIND→Prolog, SETTLE→Epilog/slurmdbd, obold on a customer login node), the
   load-bearing **enforcement-integrity** open question (a client-side gate has no
-  controller-side backstop on PCS), and the confirmed-vs-unknown split. The money
-  kernel is unaffected. Also captures that the GATE transport is *simpler* on PCS
-  (a `cli_filter` runs off the scheduler lock, so it just shells out to `obol gate` —
-  no Lua socket backend, reframing #137), the coupled off-host-transport + identity
-  change (a TCP `obold` peer has no `SO_PEERCRED`), and a **"What obol would want from
-  PCS"** wishlist (a controller-side gate hook, a completion event, a start hook) that
-  would turn the caveated gate into a hard one.
+  controller-side backstop on PCS), a **"What obol would want from PCS"** wishlist,
+  and the confirmed-vs-unknown split. Since first draft: the GATE transport is the
+  shipped shell-out (#137); there is **no PCS job-lifecycle EventBridge event** (so
+  SETTLE is Epilog/slurmdbd); and Slurm 25.11 is CI-covered (#141) — leaving
+  enforcement integrity and off-host transport+identity as the two open unknowns. The
+  money kernel is unaffected.
+- **GATE shell-out fallback (#137)** — when the shim has no in-process Lua socket
+  backend (no luasocket, no LuaJIT FFI — the case on minimal managed AMIs like AWS
+  ParallelCluster / PCS), `job_submit.lua` now falls back to exec'ing `obol gate`,
+  which speaks the wire protocol in Go and needs no Lua C module. So a missing
+  backend no longer means every job fails closed. On the on-controller `job_submit`
+  path this is a **last resort** (it forks per submit, against SEAM_DESIGN §1, so
+  in-process backends stay preferred and it logs when it fires); on a future PCS
+  `cli_filter` (client-side, off the scheduler lock) it is the intended primary
+  transport. Toggle with `OBOL_SHELLOUT` / locate the CLI with `OBOL_BIN`. `obol
+  gate` gained `--cpus`/`--gpus`/`--mem` flags so the fallback reproduces the socket
+  path's TRES pricing faithfully. Covered by a new seam test that forces the
+  in-process transport to fail and asserts allow/reject both go through the CLI.
+- **Slurm 25.11 CI coverage** — a `managed` generation (Rocky 9, Slurm 25.11.1)
+  added to the multi-gen tier (`test/docker/multigen_test.go`), covering the version
+  AWS PCS and ParallelCluster ship (a live PC ran the seam on 25.11.4, #131) but that
+  was outside obol's tested 22.05/23.11/24.05 set. A new `integ-multigen` GitHub
+  Actions workflow runs the multi-gen seam tests **weekly** and on **manual dispatch**
+  (defaulting to the `managed` gen) — the build compiles Slurm from source (~10-20
+  min/image), so it deliberately does not run on every PR.
 
 ### Changed
+- The GATE shim (`seam/lua/job_submit.lua`) now searches `/usr/local/lib/lua/<ver>`
+  for luasocket's C modules and honors `OBOL_LUA_CPATH` for extra patterns (#137).
+  A luasocket built from source (the fallback on managed hosts without a
+  `lua-socket` package — e.g. AWS ParallelCluster) installs to `/usr/local/lib`,
+  which the shim's cpath previously omitted, so `socket.unix` wouldn't load and
+  every gate failed "no usable socket backend". Also adds the 5.3 `/usr/lib` and
+  `/usr/local/lib` dirs. (The deeper "don't assume a Lua socket backend at all"
+  work remains open under #137.)
+
+### Added
+- `obold -socket-group` / `-socket-mode` (#136): set the listen socket's group
+  (name or gid) and octal mode at listen time, so a **non-root slurmctld** (e.g.
+  ParallelCluster runs it as `slurm`) can connect — `connect(2)` on a Unix socket
+  needs write permission, which the default root-owned socket denies. Recommended
+  pairing is `-socket-group slurm -socket-mode 0660`. This only widens who can drive
+  the gate/bind/settle lifecycle and read verbs; **mutating verbs stay gated on
+  `SO_PEERCRED`**, so grouping the socket does not confer admin. The ParallelCluster
+  bundle now passes these flags (with an ExecStartPost fallback for older obold).
+- `docs/feasibility-parallelcluster.md`: a feasibility write-up for running obol on
+  AWS ParallelCluster. Conclusion: feasible today with **one small seam divergence
+  and no kernel changes** — the head node is customer-owned with root, so the seam
+  attaches via ParallelCluster's `CustomSlurmSettings`; the PC-specific work is
+  packaging (a bootstrap custom action + `-state-dir` on managed shared storage), the
+  BIND re-home below, and a head-node-replacement drill. Documents the
+  confirmed-vs-unknown split and the recommended attachment model.
+- `deploy/parallelcluster/` — a reproducible bootstrap bundle for running obol on
+  AWS ParallelCluster (#131): a **phase-aware** `install-obol.sh` (`--phase files` at
+  `OnNodeStart` lays the seam down before slurmctld; `--phase daemon` at
+  `OnNodeConfigured` starts obold), a sample `cluster.yaml` carrying the seam via
+  `CustomSlurmSettings`, and a README. The release archive now also bundles the seam +
+  this deploy dir so a release is self-contained (goreleaser `archives.files`).
+  **Validated end to end on a live cluster** (PC 3.15.1, alinux2023, Slurm 25.11):
+  GATE→BIND→SETTLE with conservation intact, and unfunded-job rejection. The live run
+  surfaced four stock-AMI gaps the installer now handles — install order (files
+  before slurmctld), building a Lua socket backend from source (no luasocket/FFI on
+  the AMI), `scontrol` on the prolog PATH, and group-writable socket for the `slurm`
+  user — plus two follow-up daemon/seam issues (#136 `obold -socket-group`, #137 a
+  robust Lua transport backend).
+
+### Changed
+- ParallelCluster attachment model reflects how PC actually manages Slurm config:
+  directives attach via **`CustomSlurmSettings`** (not a hand-edited `slurm.conf`,
+  which PC overwrites on update), and PC **deny-lists `Prolog`/`Epilog`** — so obol's
+  BIND step re-homes from `Prolog` to **`PrologSlurmctld`** (head-node, not
+  deny-listed). GATE (`JobSubmitPlugins`) and SETTLE (`JobCompType`/`JobCompLoc`)
+  attach unchanged. This is the one seam divergence on PC; the money kernel and wire
+  protocol are untouched.
 - README/docs cleanup: removed the README Branding section; the quickstart and
   verify steps now install the binaries to `PATH` and invoke bare `obold`/`obol`
   (was `bin/obold`), and dropped the redundant `--socket /run/obol/obold.sock`

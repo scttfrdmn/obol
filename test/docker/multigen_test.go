@@ -35,14 +35,21 @@ type generation struct {
 	crbRepo      string // "crb" (Rocky 9/10) | "powertools" (Rocky 8)
 }
 
-// generations is the multi-gen matrix — burstlab's three Rocky generations, each
-// built from source (names/versions/bases match ~/src/burstlab/terraform/
-// generations/genN-* and ami/*.pkr.hcl). Rocky 8 carries -devel packages in
-// "powertools"; Rocky 9/10 use "crb". Rocky 10's image lives on quay.io.
+// generations is the multi-gen matrix. gen1-3 are burstlab's three Rocky
+// generations, each built from source (names/versions/bases match
+// ~/src/burstlab/terraform/generations/genN-* and ami/*.pkr.hcl). Rocky 8 carries
+// -devel packages in "powertools"; Rocky 9/10 use "crb". Rocky 10's image lives on
+// quay.io.
+//
+// "managed" is the AWS PCS / ParallelCluster target: Slurm 25.11, which AWS PCS
+// ships and which a live ParallelCluster (Slurm 25.11.4) ran the obol seam on
+// (#131). It's outside burstlab's gen set but is the version managed AWS Slurm
+// deploys, so the seam is validated against it here too. Built on Rocky 9.
 var generations = []generation{
 	{name: "gen1", baseImage: "rockylinux:8", slurmVersion: "22.05.11", crbRepo: "powertools"},
 	{name: "gen2", baseImage: "rockylinux:9", slurmVersion: "23.11.10", crbRepo: "crb"},
 	{name: "gen3", baseImage: "quay.io/rockylinux/rockylinux:10", slurmVersion: "24.05.5", crbRepo: "crb"},
+	{name: "managed", baseImage: "rockylinux:9", slurmVersion: "25.11.1", crbRepo: "crb"},
 }
 
 // selectedGenerations filters the matrix by OBOL_INTEG_GENS (comma list); empty =
@@ -138,8 +145,9 @@ func bootContainer(t *testing.T, image, container string) {
 		logs, _ := exec.Command("docker", "logs", container).CombinedOutput()
 		t.Fatalf("%s never became ready\n%s", container, logs)
 	}
-	// Wait for the node to reach idle so jobs actually dispatch.
-	for i := 0; i < 40; i++ {
+	// Wait for the node to reach idle so jobs actually dispatch. Newer Slurm
+	// (25.11) registers the node a bit slower than 22.05/23.11, so allow 90s.
+	for i := 0; i < 90; i++ {
 		out, _ := exec.Command("docker", "exec", container, "sinfo", "-h", "-o", "%T").CombinedOutput()
 		if strings.Contains(string(out), "idle") {
 			return

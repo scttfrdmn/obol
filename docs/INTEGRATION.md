@@ -6,7 +6,7 @@ obol has four test tiers, in increasing fidelity and cost:
 |------|---------|----------------|-------|
 | **Unit** | `make test` / `make race` | kernel invariants, wire framing, daemon/CLI over a socket, Lua↔Go framing | Go (+ `lua` for the seam cross-check) |
 | **Docker Slurm** | `make integ-docker` | the **real** GATE seam against an actual `slurmctld` (packaged 22.05): gate → escrow → run → jobcomp SETTLE → refund, plus multi-user/multi-account submission | Docker |
-| **Docker multi-gen** | `make integ-docker-multigen` | the seam against Slurm **built from source** at each burstlab generation's exact version (22.05 / 23.11 / 24.05) — resolves the per-generation §10 ABI question | Docker (slow: ~10-20 min/image) |
+| **Docker multi-gen** | `make integ-docker-multigen` | the seam against Slurm **built from source** at each generation's exact version (22.05 / 23.11 / 24.05, plus 25.11 for AWS PCS/PC) — resolves the per-generation §10 ABI question | Docker (slow: ~10-20 min/image) |
 | **ParallelCluster** | `make integ-pcluster` | the seam on real multi-node AWS Slurm with cloud partition policy | an AWS PC cluster + creds |
 
 The default `go test ./...` runs only the unit tier; the integration tiers are
@@ -64,16 +64,28 @@ packaged** (EPEL has only 22.05 on Rocky 9), so this tier builds Slurm **from th
 SchedMD source tarball**, one image per generation, matching burstlab's packer
 AMIs (`~/src/burstlab/ami/*.pkr.hcl`):
 
-| Gen | Base | Slurm | Matches burstlab |
-|-----|------|-------|------------------|
-| gen1 | Rocky 8 | 22.05.11 | `gen1-slurm2205-rocky8` |
-| gen2 | Rocky 9 | 23.11.10 | `gen2-slurm2311-rocky9` |
-| gen3 | Rocky 10 | 24.05.5 | `gen3-slurm2405-rocky10` |
+| Gen | Base | Slurm | Matches |
+|-----|------|-------|---------|
+| gen1 | Rocky 8 | 22.05.11 | burstlab `gen1-slurm2205-rocky8` |
+| gen2 | Rocky 9 | 23.11.10 | burstlab `gen2-slurm2311-rocky9` |
+| gen3 | Rocky 10 | 24.05.5 | burstlab `gen3-slurm2405-rocky10` |
+| managed | Rocky 9 | 25.11.1 | AWS PCS / ParallelCluster (Slurm 25.11) |
+
+The `managed` generation covers the version AWS PCS and ParallelCluster ship
+(Slurm 25.11) — outside burstlab's gen set, but the version a live ParallelCluster
+ran the obol seam on (#131), so the money path is validated against it here too.
 
 ```
-make integ-docker-multigen                     # all defined generations
+make integ-docker-multigen                        # all defined generations
 make integ-docker-multigen OBOL_INTEG_GENS=gen2   # one generation
+make integ-docker-multigen OBOL_INTEG_GENS=managed   # the Slurm 25.11 target
 ```
+
+**CI:** the multigen build is slow (each image compiles Slurm), so it does **not**
+run on every PR. The `integ-multigen` workflow (`.github/workflows/integ-multigen.yml`)
+runs it **weekly** and on **manual dispatch**, defaulting to the `managed` (25.11)
+generation — the coverage the fast per-PR lane lacks. Dispatch can select any
+comma-list of generations.
 
 `test/docker/Dockerfile.slurm-src` is parameterized by `BASE_IMAGE` /
 `SLURM_VERSION` / `ENABLE_CRB`; the harness (`test/docker/multigen_test.go`,

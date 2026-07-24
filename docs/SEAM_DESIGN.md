@@ -46,6 +46,29 @@ Consequences, all forced rather than chosen:
 This is the answer to "sidecar vs in-process": **sidecar**, forced by the lock constraint, not
 chosen on taste.
 
+### 1.1 GATE transport backends (and the shell-out fallback)
+
+The GATE call from `job_submit.lua` to `obold` is one framed round-trip over the local Unix
+socket. The shim tries transports in order (`seam/lua/obol_transport.lua`):
+
+1. **luasocket** (`socket.unix`) — the common case; a C module, in-process, no fork.
+2. **LuaJIT FFI** — same, when the controller runs LuaJIT without luasocket.
+3. **Shell-out to `obol gate`** (#137) — exec the CLI, which speaks the wire protocol in Go.
+   This needs **no** Lua socket backend, so it works on hosts that ship neither luasocket nor
+   FFI (minimal managed AMIs — AWS ParallelCluster / PCS). Enabled by default; set
+   `OBOL_SHELLOUT=0` to disable, `OBOL_BIN` to locate the CLI.
+
+The shell-out **forks per submit**, which violates the "must not block/fork on the lock" rule
+above — so on the on-controller `job_submit` path it is a deliberate **last resort**: forking
+occasionally when no in-process backend exists still beats failing closed and blocking every
+job. The in-process backends (1, 2) remain the norm on a real controller; the fallback only
+fires when both are absent, and it logs that it did.
+
+Note the fallback's cost profile flips by attachment point. On a **PCS `cli_filter`** the gate
+runs **client-side, in the user's `sbatch`, off any scheduler lock** — so there the shell-out is
+not a compromise but the *intended primary* path (no §1 constraint applies client-side). See
+[`feasibility-pcs.md`](feasibility-pcs.md).
+
 ---
 
 ## 2. Components

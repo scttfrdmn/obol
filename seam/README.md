@@ -16,7 +16,7 @@ thin Slurm-side caller, compiled per site against its own Slurm source.
 |------|------|
 | `lua/obol_wire.lua` | Pure-Lua implementation of the obol wire framing (length prefix + IEEE crc32 + JSON), mirroring Go's `internal/wire`. No external Lua deps. |
 | `lua/obol_transport.lua` | One-shot Unix-socket round-trip for the GATE call, with a hard timeout. Backends: luasocket, then LuaJIT FFI. |
-| `lua/job_submit.lua` | The `JobSubmitPlugins=lua` shim: reads `job_desc`, one GATE call to obold, stamps the token into `admin_comment`, SUCCESS/reject. Applies the local fail-closed policy when obold is unreachable. |
+| `lua/job_submit.lua` | The `JobSubmitPlugins=lua` shim: reads `job_desc`, one GATE call to obold, stamps the token into `admin_comment`, SUCCESS/reject. When no in-process socket backend is available it falls back to exec'ing `obol gate` (#137); applies the local fail-closed policy only when both the daemon is unreachable *and* the fallback can't run. |
 | `slurm/obol-prolog.sh` | Prolog: reads the token from `admin_comment` and BINDs token↔jobid at job start. |
 | `slurm/obol-jobcomp.sh` | **jobcomp/script feed (primary settlement):** runs on the controller at every completion and SETTLEs the escrow, mapping Slurm state → complete/timeout/cancel/infrafail. Fires even on node failure (unlike the epilog). |
 | `slurm/obol-epilog.sh` | Epilog: an optional compute-node SETTLE fallback (redundant with jobcomp; uses `settle --if-present` so a double-fire is a no-op). |
@@ -27,7 +27,11 @@ thin Slurm-side caller, compiled per site against its own Slurm source.
 - **Lua 5.3+** on the controller (native bitwise operators and integer subtype).
   Slurm 24.05 on Rocky 9 ships Lua 5.4. ✔
 - **luasocket** (`socket.unix`) for the transport, or a LuaJIT controller (FFI
-  fallback). The Docker/PC integration images install luasocket.
+  fallback). The Docker/PC integration images install luasocket. If **neither** is
+  present, the shim falls back to exec'ing the `obol` CLI for the GATE (#137) — so
+  luasocket is a performance choice on the controller, not a hard requirement
+  (though on a high-throughput controller you want an in-process backend, since the
+  fallback forks per submit; see [`../docs/SEAM_DESIGN.md`](../docs/SEAM_DESIGN.md) §1.1).
 
 ## slurm.conf
 
@@ -45,6 +49,15 @@ Environment for the scripts and shim:
 OBOL_SOCKET=/run/obol/obold.sock   # must match obold -socket
 OBOL_BIN=/usr/local/bin/obol       # CLI path for the scripts
 OBOL_TIMEOUT_MS=50                 # shim hard timeout for the GATE call
+OBOL_LUA_DIR=/etc/slurm/lua        # where the obol_wire/obol_transport modules live
+OBOL_LUA_CPATH=                    # extra ";"-separated C-module patterns, prepended
+                                   # to the shim cpath (for luasocket in a nonstandard
+                                   # location); the shim already searches the common
+                                   # /usr/lib64, /usr/lib, and /usr/local/lib dirs
+OBOL_SHELLOUT=1                    # 1 (default): fall back to exec'ing `obol gate`
+                                   # when no in-process socket backend loads (#137);
+                                   # 0 disables the fallback (then a missing backend
+                                   # => fail-closed policy applies)
 ```
 
 **jobcomp runs with a minimal environment.** slurmctld invokes the `jobcomp/script`
