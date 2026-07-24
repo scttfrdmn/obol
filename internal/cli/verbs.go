@@ -68,6 +68,9 @@ func cmdGate(args []string, out, errOut io.Writer) int {
 	timeLimit := fs.Int64("time-limit", 0, "requested walltime, seconds")
 	ntasks := fs.Int("ntasks", 1, "task count (>1 = array)")
 	uid := fs.Uint64("uid", 0, "submitting user id")
+	cpus := fs.Int64("cpus", 0, "requested CPUs (for TRES pricing)")
+	gpus := fs.Int64("gpus", 0, "requested GPUs (for TRES pricing)")
+	mem := fs.Int64("mem", 0, "requested memory MB (for TRES pricing)")
 	var sources stringList
 	fs.Var(&sources, "source", "funding source account, ordered fallback (repeatable; overrides --account for multi-source, #54)")
 	if err := fs.Parse(args); err != nil {
@@ -82,6 +85,7 @@ func cmdGate(args []string, out, errOut io.Writer) int {
 	resp, err := roundTrip(*socket, wire.GateFrame(&wire.GateRequest{
 		Account: *account, Partition: *partition, UID: uint32(*uid),
 		TimeLimit: *timeLimit, NTasks: *ntasks, Sources: sources,
+		TRES: wire.TRES{CPUs: *cpus, GPUs: *gpus, Mem: *mem},
 	}))
 	if err != nil {
 		return fail(errOut, err)

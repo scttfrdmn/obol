@@ -126,10 +126,12 @@ Getting there surfaced four things a stock PC AMI needs, all now handled by
 1. **Files before slurmctld** — the `OnNodeStart`/`OnNodeConfigured` phase split
    (see the ordering note above). Without it the head-node bootstrap fails.
 2. **A Lua socket backend** — stock PC (Slurm 25.11's embedded Lua 5.4) ships no
-   luasocket, no LuaJIT FFI, and no `lua-socket` package / EPEL / luarocks, so the
-   GATE fails "no usable socket backend". `install-obol.sh` builds luasocket
-   (incl. the AF_UNIX submodule) from source using the AMI's `gcc` + `lua-devel`,
-   into `/usr/lib64/lua/<ver>/socket/`.
+   luasocket, no LuaJIT FFI, and no `lua-socket` package / EPEL / luarocks. The GATE
+   shim falls back to exec'ing `obol gate` in that case (#137), so it still enforces
+   without a backend — but that forks per submit, so `install-obol.sh` also builds
+   luasocket (incl. the AF_UNIX submodule) from source using the AMI's `gcc` +
+   `lua-devel`, into `/usr/lib64/lua/<ver>/socket/`, as the fast in-process path.
+   (If the build fails, the shell-out fallback keeps the gate working.)
 3. **`scontrol` on the prolog's PATH** — slurmctld runs `PrologSlurmctld` with a
    minimal env; `obol-prolog.sh` needs `scontrol` to read the token from
    `admin_comment`, or BIND silently no-ops. The generated wrapper adds the Slurm

@@ -8,6 +8,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **GATE shell-out fallback (#137)** — when the shim has no in-process Lua socket
+  backend (no luasocket, no LuaJIT FFI — the case on minimal managed AMIs like AWS
+  ParallelCluster / PCS), `job_submit.lua` now falls back to exec'ing `obol gate`,
+  which speaks the wire protocol in Go and needs no Lua C module. So a missing
+  backend no longer means every job fails closed. On the on-controller `job_submit`
+  path this is a **last resort** (it forks per submit, against SEAM_DESIGN §1, so
+  in-process backends stay preferred and it logs when it fires); on a future PCS
+  `cli_filter` (client-side, off the scheduler lock) it is the intended primary
+  transport. Toggle with `OBOL_SHELLOUT` / locate the CLI with `OBOL_BIN`. `obol
+  gate` gained `--cpus`/`--gpus`/`--mem` flags so the fallback reproduces the socket
+  path's TRES pricing faithfully. Covered by a new seam test that forces the
+  in-process transport to fail and asserts allow/reject both go through the CLI.
 - **Slurm 25.11 CI coverage** — a `managed` generation (Rocky 9, Slurm 25.11.1)
   added to the multi-gen tier (`test/docker/multigen_test.go`), covering the version
   AWS PCS and ParallelCluster ship (a live PC ran the seam on 25.11.4, #131) but that
