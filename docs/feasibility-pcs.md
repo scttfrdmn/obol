@@ -146,6 +146,15 @@ SETTLE can't attach. `Epilog` **is** allowlisted — re-home settlement onto the
 the tail). Alternatively, since `AccountingStorage*` is allowlisted, a slurmdbd-driven
 completion feed (#13) becomes the more robust SETTLE path on PCS specifically.
 
+> **Resolved (Jul 2026): there is no EventBridge job-completion feed to lean on.**
+> The EventBridge schema registry shows PCS emits only CloudTrail-derived events
+> (`aws.pcs@AWSAPICallviaCloudTrail`, `…AWSServiceEventviaCloudTrail`, console/sign-in)
+> — control-plane API/service events, **no job-lifecycle event**. So a "settle from an
+> EventBridge job-completion event" design is off the table; SETTLE on PCS is `Epilog`
+> (with the node-fail caveat — an epilog is skipped when the node dies, so infra-fail
+> settlement leans on the unbound/`reconcile` janitors) and/or the slurmdbd feed.
+> `EpilogSlurmctld` (controller-side, fires even on node failure) is **not** allowlisted.
+
 ### obold — on a customer login node, not the controller
 The single biggest structural change: **`obold` cannot run next to `slurmctld`**
 because there is no customer access to the managed controller. It runs on a
@@ -156,9 +165,11 @@ customer-owned login node. Implications to work through (❓):
   scheduler lock (SEAM_DESIGN §1: must not fork on the lock). BIND and SETTLE already
   just exec the `obol` binary. On PCS the GATE is a **`cli_filter/lua`** that runs
   **client-side in the user's `sbatch`, on no lock** — so it can simply **shell out to
-  `obol gate`** like BIND/SETTLE do, with no Lua socket backend at all. This is the
-  primary PCS path and the reason issue #137 is reframed as "add a shell-out
-  transport fallback" rather than "ship a Lua socket backend."
+  `obol gate`** like BIND/SETTLE do, with no Lua socket backend at all. **This
+  shell-out transport already shipped** (#137, merged): `job_submit.lua` falls back to
+  exec'ing `obol gate` when no in-process backend loads. A PCS `cli_filter.lua` reuses
+  that same exec path as its primary transport — so the gate mechanism itself needs no
+  new work; only the `cli_filter` wrapper + cross-host addressing below remain.
 - **But the CLI must reach `obold` across hosts.** If the submit login node isn't
   where `obold` runs, `obol gate` needs `--addr host:port` against an `obold` **TCP**
   listener (both are UDS-only today). This is a real code change — and it collides
@@ -220,6 +231,13 @@ gives on self-managed Slurm. That caveat must be stated honestly to any PCS oper
   `/etc/aws/pcs/scheduler/slurm-{version}/`, runs **before the controller**, and can
   **reject jobs with a custom message**.
 - No customer shell/root on the managed controller.
+- **PCS has no job-lifecycle EventBridge event** (verified via the EventBridge schema
+  registry — only CloudTrail-derived control-plane events exist). So SETTLE can't ride
+  an event feed; it's `Epilog` and/or slurmdbd.
+- **obol's GATE transport is a solved problem for PCS**: the `cli_filter` primary path
+  is the already-shipped shell-out to `obol gate` (#137); no Lua socket backend needed.
+- **Slurm 25.11 is now under obol CI** (the `managed` multi-gen lane, #141) and a live
+  ParallelCluster ran the seam on 25.11.4 — so the version PCS ships is exercised.
 
 ### Unknown / to confirm ❓
 1. **Enforcement integrity** (above) — can the client-side gate be bypassed, and does
@@ -234,13 +252,17 @@ gives on self-managed Slurm. That caveat must be stated honestly to any PCS oper
    channel (token/mTLS). Transport and authorization are the same change.
 3. **`admin_comment` writability from `cli_filter`** on PCS Slurm 25.11 for the
    correlation token, or a fallback carrier.
-4. **SETTLE via Epilog vs. slurmdbd feed** — which is robust on PCS given no jobcomp
-   script; the slurmdbd feed (#13) may be the better PCS-specific path.
+4. **SETTLE robustness** — with no EventBridge feed (resolved above) and no
+   controller-side `EpilogSlurmctld`, node-failure settlement leans on `Epilog` +
+   the unbound/`reconcile` janitors, or the slurmdbd feed (#13). Which combination is
+   robust on PCS needs a prototype; not a blocker (the janitors already backstop lost
+   settlements).
 5. **Where obold's state lives** and single-writer fencing on a login node
    (mirrors the ParallelCluster durability unknowns).
-6. **PCS Slurm version** — docs reference 24.11 / 25.05 / 25.11; obol is tested on
-   22.05 / 23.11 / 24.05. The 25.x line is **outside obol's current tested set** and
-   needs a compatibility pass (the multi-gen tier extended to 25.x).
+
+Resolved since the first draft: the GATE transport (was #2's hard part — now the
+shipped shell-out, #137), the SETTLE event feed (there isn't one — use Epilog/slurmdbd),
+and Slurm-25.x coverage (now the `managed` CI lane, #141).
 
 ---
 
